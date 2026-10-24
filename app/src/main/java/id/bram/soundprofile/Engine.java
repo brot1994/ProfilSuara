@@ -224,6 +224,23 @@ public class Engine {
         refresh(c);
     }
 
+    /** Aktifkan profil sampai jam tertentu, lalu otomatis pindah ke profil nextId. */
+    static void activateUntil(Context c, long id, long until, long nextId) {
+        Store s = new Store(c);
+        Profile p = s.profile(id);
+        if (p == null) return;
+        s.startTemp(System.currentTimeMillis(), until, nextId);
+        applyAudio(c, p);
+        s.setActive(id);
+        refresh(c);
+    }
+
+    /** Profil yang menurut jadwal berlaku pada waktu t (null bila tidak ada jadwal). */
+    static Profile scheduledAt(Store s, long t) {
+        Occ o = mostRecent(s.schedEntries(), t);
+        return o == null ? null : s.profile(o.entry.profileId);
+    }
+
     /** Batalkan mode sementara dan terapkan profil sesuai jadwal saat ini. */
     static void followSchedule(Context c) {
         Store s = new Store(c);
@@ -260,9 +277,8 @@ public class Engine {
                 long start = s.tempStart();
                 long ret = s.tempReturn();
                 s.clearTemp();
-                Profile target = null;
-                if (o != null && o.time >= start) target = s.profile(o.entry.profileId);
-                if (target == null) target = s.profile(ret);
+                Profile target = s.profile(ret); // profil pilihan pengguna di jendela sementara
+                if (target == null && o != null && o.time >= start) target = s.profile(o.entry.profileId);
                 if (target == null && o != null) target = s.profile(o.entry.profileId);
                 if (target != null) {
                     applyAudio(c, target);

@@ -292,63 +292,188 @@ public class MainActivity extends Activity {
     }
 
     private void activate(Profile p, int minutes) {
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (p.needsPolicy() && !nm.isNotificationPolicyAccessGranted()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Butuh izin Jangan Ganggu")
-                    .setMessage("Profil “" + p.name + "” memakai mode Senyap/Jangan Ganggu. "
-                            + "Berikan akses Jangan Ganggu untuk Profil Suara dulu.")
-                    .setNegativeButton("Nanti", null)
-                    .setPositiveButton("Buka pengaturan", (d, w) ->
-                            open(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)))
-                    .show();
-            return;
-        }
+        if (!policyOk(p)) return;
         Engine.activate(this, p.id, minutes);
-        if (minutes > 0)
-            toast(p.name + " aktif sampai " + Engine.fmtTime(System.currentTimeMillis() + minutes * 60000L));
         render(false);
     }
 
+    /** Jendela profil sementara ala Sound Profile: pilih jam selesai + profil berikutnya. */
     private void durationDialog(final Profile p) {
-        final String[] labels = {"15 menit", "30 menit", "45 menit", "1 jam", "1,5 jam", "2 jam", "3 jam",
-                "Sampai jam…", "Lainnya (menit)…"};
-        final int[] mins = {15, 30, 45, 60, 90, 120, 180};
-        new AlertDialog.Builder(this).setTitle(p.name + " selama…").setItems(labels, (d, w) -> {
-            if (w < mins.length) {
-                activate(p, mins[w]);
-            } else if (w == mins.length) {
-                Calendar k = Calendar.getInstance();
-                k.add(Calendar.HOUR_OF_DAY, 1);
-                new TimePickerDialog(this, (tp, h, m) -> {
-                    Calendar t = Calendar.getInstance();
-                    t.set(Calendar.HOUR_OF_DAY, h);
-                    t.set(Calendar.MINUTE, m);
-                    t.set(Calendar.SECOND, 0);
-                    long diff = t.getTimeInMillis() - System.currentTimeMillis();
-                    if (diff <= 0) diff += 24L * 3600000L;
-                    activate(p, (int) Math.max(1, Math.round(diff / 60000.0)));
-                }, k.get(Calendar.HOUR_OF_DAY), 0, true).show();
-            } else {
-                final EditText et = new EditText(this);
-                et.setInputType(InputType.TYPE_CLASS_NUMBER);
-                et.setHint("Menit");
-                LinearLayout box = new LinearLayout(this);
-                box.setPadding(dp(20), dp(8), dp(20), 0);
-                box.addView(et, new LinearLayout.LayoutParams(MATCH, WRAP));
-                new AlertDialog.Builder(this).setTitle("Berapa menit?").setView(box)
-                        .setNegativeButton("Batal", null)
-                        .setPositiveButton("OK", (d2, w2) -> {
-                            int m = 0;
-                            try {
-                                m = Integer.parseInt(et.getText().toString().trim());
-                            } catch (Exception ignored) {
-                            }
-                            if (m > 0 && m <= 24 * 60) activate(p, m);
-                            else toast("Isi 1 sampai 1440 menit");
-                        }).show();
+        if (!policyOk(p)) return;
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        dlg.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+        FrameLayout frame = new FrameLayout(this);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable cg = new GradientDrawable();
+        cg.setColor(0xFF5E5E5E);
+        cg.setCornerRadius(dp(16));
+        card.setBackground(cg);
+        card.setPadding(dp(20), dp(56), dp(20), dp(20));
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(MATCH, WRAP);
+        clp.topMargin = dp(44);
+        frame.addView(card, clp);
+
+        // garis toska di atas kartu
+        View strip = new View(this);
+        strip.setBackgroundColor(ACC);
+        FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(MATCH, dp(8));
+        slp.topMargin = dp(44);
+        frame.addView(strip, slp);
+
+        // lingkaran ikon profil
+        ImageView circle = icon(p.iconRes(), 0xFFFFFFFF);
+        GradientDrawable og = new GradientDrawable();
+        og.setShape(GradientDrawable.OVAL);
+        og.setColor(ACC);
+        circle.setBackground(og);
+        circle.setPadding(dp(22), dp(22), dp(22), dp(22));
+        frame.addView(circle, new FrameLayout.LayoutParams(dp(90), dp(90), Gravity.CENTER_HORIZONTAL | Gravity.TOP));
+
+        TextView head = text("Profil:  " + p.name, 24, 0xFF26C6CC, true);
+        card.addView(head);
+        card.addView(text("Pilih jam selesai untuk profil ini", 16, 0xFFEEEEEE, false));
+
+        // pemilih jam
+        LinearLayout pick = new LinearLayout(this);
+        pick.setOrientation(LinearLayout.HORIZONTAL);
+        pick.setGravity(Gravity.CENTER_VERTICAL);
+        pick.setPadding(0, dp(10), 0, dp(10));
+        final android.widget.NumberPicker hp = new android.widget.NumberPicker(this);
+        hp.setMinValue(0);
+        hp.setMaxValue(23);
+        hp.setFormatter(v -> String.format(java.util.Locale.US, "%02d", v));
+        final android.widget.NumberPicker mp = new android.widget.NumberPicker(this);
+        mp.setMinValue(0);
+        mp.setMaxValue(59);
+        mp.setFormatter(v -> String.format(java.util.Locale.US, "%02d", v));
+        Calendar k = Calendar.getInstance();
+        k.add(Calendar.MINUTE, 30);
+        hp.setValue(k.get(Calendar.HOUR_OF_DAY));
+        mp.setValue(k.get(Calendar.MINUTE));
+        pick.addView(hp, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        TextView colon = text(":", 22, 0xFFEEEEEE, false);
+        colon.setPadding(dp(6), 0, dp(6), 0);
+        pick.addView(colon);
+        pick.addView(mp, new LinearLayout.LayoutParams(0, WRAP, 1f));
+
+        LinearLayout plus = new LinearLayout(this);
+        plus.setOrientation(LinearLayout.VERTICAL);
+        plus.setPadding(dp(10), 0, 0, 0);
+        int[] adds = {10, 30};
+        for (final int a : adds) {
+            TextView b = text("+" + a + "'", 18, 0xFFFFFFFF, true);
+            b.setGravity(Gravity.CENTER);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(ACC);
+            bg.setCornerRadius(dp(26));
+            b.setBackground(bg);
+            b.setElevation(dp(3));
+            b.setOnClickListener(v -> {
+                int total = hp.getValue() * 60 + mp.getValue() + a;
+                total %= 24 * 60;
+                hp.setValue(total / 60);
+                mp.setValue(total % 60);
+            });
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(80), dp(50));
+            blp.setMargins(0, dp(6), 0, dp(6));
+            plus.addView(b, blp);
+        }
+        pick.addView(plus);
+        card.addView(pick);
+
+        card.addView(text("Setelah jam ini tercapai, profil berikut akan otomatis aktif:", 15, 0xFFEEEEEE, false));
+
+        // profil berikutnya (default: profil aktif sebelumnya / sesuai jadwal)
+        final List<Profile> ps = s.profiles();
+        long defNext = s.activeId();
+        if (defNext == p.id) {
+            Profile sch = Engine.scheduledAt(s, k.getTimeInMillis());
+            defNext = sch != null ? sch.id : (ps.isEmpty() ? -1 : ps.get(0).id);
+        }
+        if (s.tempUntil() > System.currentTimeMillis() && s.profile(s.tempReturn()) != null)
+            defNext = s.tempReturn();
+        int sel = 0;
+        for (int i = 0; i < ps.size(); i++) if (ps.get(i).id == defNext) sel = i;
+        final Spinner nextSp = new Spinner(this);
+        nextSp.setAdapter(new ArrayAdapter<Profile>(this, android.R.layout.simple_spinner_dropdown_item, ps) {
+            @Override
+            public View getView(int pos, View cv, ViewGroup parent) {
+                return deco((TextView) super.getView(pos, cv, parent), getItem(pos));
             }
-        }).show();
+
+            @Override
+            public View getDropDownView(int pos, View cv, ViewGroup parent) {
+                return deco((TextView) super.getDropDownView(pos, cv, parent), getItem(pos));
+            }
+
+            private TextView deco(TextView tv, Profile pr) {
+                tv.setText(pr.name);
+                tv.setTextSize(18);
+                android.graphics.drawable.Drawable d = getDrawable(pr.iconRes()).mutate();
+                d.setTint(0xFFDDDDDD);
+                d.setBounds(0, 0, dp(22), dp(22));
+                tv.setCompoundDrawablesRelative(d, null, null, null);
+                tv.setCompoundDrawablePadding(dp(14));
+                return tv;
+            }
+        });
+        nextSp.setSelection(sel);
+        GradientDrawable sg = new GradientDrawable();
+        sg.setStroke(dp(2), 0xFF2A2A2A);
+        sg.setCornerRadius(dp(6));
+        nextSp.setBackground(sg);
+        nextSp.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(MATCH, dp(58));
+        nlp.setMargins(dp(4), dp(14), dp(4), dp(20));
+        card.addView(nextSp, nlp);
+
+        TextView go = text("AKTIFKAN", 18, 0xFFFFFFFF, true);
+        go.setGravity(Gravity.CENTER);
+        go.setBackgroundColor(ACC);
+        go.setOnClickListener(v -> {
+            Calendar t = Calendar.getInstance();
+            t.set(Calendar.HOUR_OF_DAY, hp.getValue());
+            t.set(Calendar.MINUTE, mp.getValue());
+            t.set(Calendar.SECOND, 0);
+            t.set(Calendar.MILLISECOND, 0);
+            long until = t.getTimeInMillis();
+            if (until <= System.currentTimeMillis() + 30000) until += 24L * 3600000L;
+            Profile nx = ps.isEmpty() ? null : ps.get(Math.max(0, nextSp.getSelectedItemPosition()));
+            Engine.activateUntil(this, p.id, until, nx == null ? -1 : nx.id);
+            toast(p.name + " aktif sampai " + Engine.fmtTime(until)
+                    + (nx != null ? ", lalu " + nx.name : ""));
+            dlg.dismiss();
+            render(false);
+        });
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(MATCH, dp(54));
+        glp.setMargins(dp(24), 0, dp(24), 0);
+        card.addView(go, glp);
+
+        ScrollView sv = new ScrollView(this);
+        sv.addView(frame);
+        dlg.setContentView(sv);
+        if (dlg.getWindow() != null) {
+            dlg.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            dlg.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.9), WRAP);
+        }
+        dlg.show();
+    }
+
+    private boolean policyOk(Profile p) {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (!p.needsPolicy() || nm.isNotificationPolicyAccessGranted()) return true;
+        new AlertDialog.Builder(this)
+                .setTitle("Butuh izin Jangan Ganggu")
+                .setMessage("Profil “" + p.name + "” memakai mode Senyap/Jangan Ganggu. "
+                        + "Berikan akses Jangan Ganggu untuk Profil Suara dulu.")
+                .setNegativeButton("Nanti", null)
+                .setPositiveButton("Buka pengaturan", (d, w) ->
+                        open(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)))
+                .show();
+        return false;
     }
 
     // ================= halaman jadwal (per hari) =================
