@@ -94,8 +94,8 @@ public class Engine {
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
         boolean policy = nm.isNotificationPolicyAccessGranted();
 
-        // Keluar dari Jangan Ganggu bila profil bukan Senyap
-        if (policy && p.mode != Profile.SILENT) {
+        // 1) Matikan dulu Jangan Ganggu supaya volume & mode dering bisa diatur
+        if (policy) {
             try {
                 if (nm.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL)
                     nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL);
@@ -103,6 +103,39 @@ public class Engine {
             }
         }
 
+        // 2) Volume & mode dering
+        applyRingerAndVolumes(am, p);
+
+        // 3) Mode Jangan Ganggu global (terakhir, agar tidak tertimpa mode dering)
+        if (policy && p.dnd != Profile.DND_OFF) {
+            try {
+                int filter;
+                if (p.dnd == Profile.DND_PRIORITY) {
+                    int cat = NotificationManager.Policy.PRIORITY_CATEGORY_ALARMS;
+                    if (Build.VERSION.SDK_INT >= 28) cat |= NotificationManager.Policy.PRIORITY_CATEGORY_MEDIA;
+                    int senders = NotificationManager.Policy.PRIORITY_SENDERS_ANY;
+                    if (p.callers != Profile.CALL_NONE) {
+                        cat |= NotificationManager.Policy.PRIORITY_CATEGORY_CALLS;
+                        if (p.callers == Profile.CALL_CONTACTS)
+                            senders = NotificationManager.Policy.PRIORITY_SENDERS_CONTACTS;
+                        else if (p.callers == Profile.CALL_STARRED)
+                            senders = NotificationManager.Policy.PRIORITY_SENDERS_STARRED;
+                    }
+                    if (p.repeat) cat |= NotificationManager.Policy.PRIORITY_CATEGORY_REPEAT_CALLERS;
+                    nm.setNotificationPolicy(new NotificationManager.Policy(cat, senders, senders));
+                    filter = NotificationManager.INTERRUPTION_FILTER_PRIORITY;
+                } else if (p.dnd == Profile.DND_ALARMS) {
+                    filter = NotificationManager.INTERRUPTION_FILTER_ALARMS;
+                } else {
+                    filter = NotificationManager.INTERRUPTION_FILTER_NONE;
+                }
+                nm.setInterruptionFilter(filter);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static void applyRingerAndVolumes(AudioManager am, Profile p) {
         setVol(am, AudioManager.STREAM_MUSIC, p.media);
         setVol(am, AudioManager.STREAM_ALARM, p.alarm);
 
@@ -333,13 +366,13 @@ public class Engine {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Notification.Builder b = new Notification.Builder(c, CHANNEL)
-                .setSmallIcon(R.drawable.ic_stat)
+                .setSmallIcon(act == null ? R.drawable.ic_stat : act.iconRes())
                 .setContentTitle("Profil: " + (act == null ? "—" : act.name))
                 .setContentText(statusLine(c, s))
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setOnlyAlertOnce(true)
-                .setColor(0xFFFFB300)
+                .setColor(0xFF00979D)
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setContentIntent(pOpen);
 
@@ -348,7 +381,7 @@ public class Engine {
             if (n >= 3) break;
             String label = (p.id == s.activeId() ? "● " : "") + p.name;
             b.addAction(new Notification.Action.Builder(
-                    Icon.createWithResource(c, R.drawable.ic_stat), label,
+                    Icon.createWithResource(c, p.iconRes()), label,
                     applyIntent(c, p.id, 1000)).build());
             n++;
         }

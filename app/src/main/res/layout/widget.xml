@@ -15,7 +15,7 @@
         android:paddingStart="6dp"
         android:paddingBottom="6dp"
         android:text="Profil Suara"
-        android:textColor="#FFFFB300"
+        android:textColor="#FF4DD0E1"
         android:textSize="15sp"
         android:textStyle="bold" />
 

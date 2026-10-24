@@ -43,7 +43,7 @@ public class ProfileWidget extends AppWidgetProvider {
                 Profile p = ps.get(i);
                 rv.setViewVisibility(btn[i], View.VISIBLE);
                 rv.setTextViewText(btn[i], p.name);
-                rv.setTextColor(btn[i], p.id == s.activeId() ? 0xFFFFB300 : 0xFFEEEEEE);
+                rv.setTextColor(btn[i], p.id == s.activeId() ? 0xFF4DD0E1 : 0xFFEEEEEE);
                 rv.setOnClickPendingIntent(btn[i], Engine.applyIntent(c, p.id, 2000));
             } else {
                 rv.setViewVisibility(btn[i], View.GONE);

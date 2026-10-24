@@ -15,27 +15,40 @@ public class Store {
 
     public Store(Context c) {
         sp = c.getApplicationContext().getSharedPreferences("data", Context.MODE_PRIVATE);
-        if (!sp.getBoolean("init", false)) seed();
+        if (sp.getInt("schema", 0) < 2) seed();
     }
 
     private void seed() {
         List<Profile> ps = new ArrayList<>();
-        ps.add(Profile.make(1, "Normal", Profile.NORMAL, 80, 80, 60, 80, 50));
-        ps.add(Profile.make(2, "Kerja", Profile.VIBRATE, 60, 60, 30, 80, -1));
-        ps.add(Profile.make(3, "Rapat", Profile.SILENT, 60, 60, 0, 80, -1));
-        ps.add(Profile.make(4, "Malam", Profile.SILENT, 60, 60, 20, 90, -1));
+        ps.add(Profile.make(1, "Normal", 0, Profile.NORMAL, 80, 80, 60, 80, 50));
+        ps.add(Profile.make(2, "Pelan", 1, Profile.NORMAL, 30, 30, 30, 70, 20));
+        ps.add(Profile.make(3, "Senyap", 2, Profile.SILENT, 60, 60, -1, 80, -1));
+        ps.add(Profile.make(4, "Malam", 3, Profile.SILENT, 60, 60, 20, 90, -1)
+                .dnd(Profile.DND_PRIORITY, Profile.CALL_STARRED));
+        ps.add(Profile.make(5, "Getar saja", 4, Profile.VIBRATE, 60, 60, -1, 80, -1));
+        ps.add(Profile.make(6, "Hanya panggilan", 5, Profile.NORMAL, 80, 0, -1, 80, 0)
+                .dnd(Profile.DND_PRIORITY, Profile.CALL_ANY));
+        ps.add(Profile.make(7, "Kontak favorit saja", 6, Profile.NORMAL, 80, 0, -1, 80, 0)
+                .dnd(Profile.DND_PRIORITY, Profile.CALL_STARRED));
+        ps.add(Profile.make(8, "Kontak dikenal saja", 7, Profile.NORMAL, 80, 0, -1, 80, 0)
+                .dnd(Profile.DND_PRIORITY, Profile.CALL_CONTACTS));
+        ps.add(Profile.make(9, "Hanya alarm", 8, Profile.SILENT, 60, 60, -1, 80, -1)
+                .dnd(Profile.DND_ALARMS, Profile.CALL_NONE));
+        ps.add(Profile.make(10, "Senyap total", 9, Profile.SILENT, 60, 60, -1, -1, -1)
+                .dnd(Profile.DND_TOTAL, Profile.CALL_NONE));
         saveProfiles(ps);
 
         List<Entry> es = new ArrayList<>();
         es.add(Entry.make(11, 6, 0, Entry.WEEKDAYS, 1));
-        es.add(Entry.make(12, 7, 30, Entry.WEEKDAYS, 2));
+        es.add(Entry.make(12, 7, 30, Entry.WEEKDAYS, 5));
         es.add(Entry.make(13, 17, 0, Entry.WEEKDAYS, 1));
         es.add(Entry.make(14, 7, 0, Entry.WEEKEND, 1));
         es.add(Entry.make(15, 22, 0, Entry.EVERYDAY, 4));
         saveEntries(es);
 
         sp.edit()
-                .putBoolean("init", true)
+                .putInt("schema", 2)
+                .putLong("tempUntil", 0)
                 .putLong("nextId", 100)
                 .putLong("active", 1)
                 .putBoolean("notif", true)

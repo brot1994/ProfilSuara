@@ -33,7 +33,7 @@ public class ProfileTile extends TileService {
         Profile a = s.profile(s.activeId());
         String name = a == null ? "—" : a.name;
         t.setState(Tile.STATE_ACTIVE);
-        t.setIcon(Icon.createWithResource(this, R.drawable.ic_stat));
+        t.setIcon(Icon.createWithResource(this, a == null ? R.drawable.ic_stat : a.iconRes()));
         if (Build.VERSION.SDK_INT >= 29) {
             t.setLabel("Profil Suara");
             t.setSubtitle(name);
