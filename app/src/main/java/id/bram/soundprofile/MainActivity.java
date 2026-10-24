@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     private Profile editing;
     private boolean editingNew;
     private int editReturn = PAGE_PROFILES;
+    private boolean animateIn = true;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -111,6 +112,12 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         Engine.ensureChannel(this);
         Engine.tick(this);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        animateIn = true;
     }
 
     @Override
@@ -411,10 +418,19 @@ public class MainActivity extends Activity {
             content.addView(warn, lp);
         }
 
+        int idx = 0;
         for (final Profile p : s.profiles()) {
             boolean on = p.id == active;
-            content.addView(pill(p, on, on && tu > now ? "sampai " + Engine.fmtTime(tu) : null));
+            View pv = pill(p, on, on && tu > now ? "sampai " + Engine.fmtTime(tu) : null);
+            if (animateIn) {
+                pv.setAlpha(0f);
+                pv.setTranslationY(dp(18));
+                pv.animate().alpha(1f).translationY(0).setStartDelay(60L + idx * 40L).setDuration(240).start();
+            }
+            content.addView(pv);
+            idx++;
         }
+        animateIn = false;
 
         TextView hint = text("Ketuk = aktifkan · ikon jam = sementara · tekan lama = pengaturan profil", 12, SUB, false);
         hint.setGravity(Gravity.CENTER);
@@ -467,6 +483,73 @@ public class MainActivity extends Activity {
         if (!policyOk(p)) return;
         Engine.activate(this, p.id, minutes);
         render(false);
+        showActivating(p);
+    }
+
+    /** Dialog "Mengaktifkan …" dengan lingkaran berputar, lalu kembali ke layar Home. */
+    private void showActivating(Profile p) {
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        d.setCancelable(false);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFF4A4A4A);
+        bg.setCornerRadius(dp(6));
+        box.setBackground(bg);
+        box.setPadding(dp(22), dp(20), dp(26), dp(20));
+
+        android.widget.ProgressBar pb = new android.widget.ProgressBar(this);
+        pb.setIndeterminate(true);
+        pb.setIndeterminateTintList(ColorStateList.valueOf(0xFF26C6CC));
+        box.addView(pb, new LinearLayout.LayoutParams(dp(44), dp(44)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(dp(22), 0, 0, 0);
+        texts.addView(text("Mengaktifkan “" + p.name + "”…", 16, 0xFFFFFFFF, false));
+        String info = null;
+        long now = System.currentTimeMillis();
+        if (s.tempUntil() > now) {
+            Profile nx = s.profile(s.tempReturn());
+            info = "Sampai " + Engine.fmtTime(s.tempUntil()) + (nx != null ? " - lalu " + nx.name : "");
+        } else {
+            Engine.Occ n = Engine.next(s.schedEntries(), now);
+            if (n != null) {
+                Calendar k = Calendar.getInstance();
+                k.setTimeInMillis(n.time);
+                Profile np = s.profile(n.entry.profileId);
+                info = "Jadwal: " + DAY_FULL[Engine.dayBit(k)] + "\n" + Engine.fmtTime(n.time)
+                        + " - " + (np == null ? "?" : np.name);
+            }
+        }
+        if (info != null) texts.addView(text(info, 14, 0xFFDDDDDD, false));
+        box.addView(texts);
+
+        d.setContentView(box);
+        if (d.getWindow() != null) {
+            d.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            d.getWindow().setDimAmount(0.55f);
+            d.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.82), WRAP);
+        }
+        box.setAlpha(0f);
+        box.setScaleX(0.9f);
+        box.setScaleY(0.9f);
+        d.show();
+        box.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180).start();
+
+        final boolean home = s.goHome();
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            box.animate().alpha(0f).setDuration(160).withEndAction(() -> {
+                try {
+                    d.dismiss();
+                } catch (Exception ignored) {
+                }
+                if (home) moveTaskToBack(true);
+            }).start();
+        }, home ? 1300 : 900);
     }
 
     /** Jendela profil sementara ala Sound Profile: pilih jam selesai + profil berikutnya. */
@@ -615,10 +698,9 @@ public class MainActivity extends Activity {
             if (until <= System.currentTimeMillis() + 30000) until += 24L * 3600000L;
             Profile nx = ps.isEmpty() ? null : ps.get(Math.max(0, nextSp.getSelectedItemPosition()));
             Engine.activateUntil(this, p.id, until, nx == null ? -1 : nx.id);
-            toast(p.name + " aktif sampai " + Engine.fmtTime(until)
-                    + (nx != null ? ", lalu " + nx.name : ""));
             dlg.dismiss();
             render(false);
+            showActivating(p);
         });
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(MATCH, dp(54));
         glp.setMargins(dp(24), 0, dp(24), 0);
@@ -1378,6 +1460,14 @@ public class MainActivity extends Activity {
             Engine.refresh(this);
         });
         set.addView(ns);
+        Switch gh = new Switch(this);
+        gh.setText("Kembali ke Home setelah mengaktifkan profil");
+        gh.setTextColor(TXT);
+        gh.setTextSize(15);
+        gh.setPadding(0, dp(12), 0, 0);
+        gh.setChecked(s.goHome());
+        gh.setOnCheckedChangeListener((bt, checked) -> s.setGoHome(checked));
+        set.addView(gh);
         set.addView(btn("Ikuti jadwal sekarang", v -> {
             Engine.followSchedule(this);
             toast("Profil disesuaikan dengan jadwal");

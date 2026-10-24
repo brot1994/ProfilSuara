@@ -40,6 +40,9 @@ public class Store {
         if (changed) saveEntries(out);
     }
 
+    public boolean goHome() { return sp.getBoolean("goHome", true); }
+    public void setGoHome(boolean b) { sp.edit().putBoolean("goHome", b).commit(); }
+
     public boolean schedOn() { return sp.getBoolean("schedOn", true); }
     public void setSchedOn(boolean b) { sp.edit().putBoolean("schedOn", b).commit(); }
 
