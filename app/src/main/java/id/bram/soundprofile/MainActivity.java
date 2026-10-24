@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
             PILL_TXT = 0xFF111111, WARN = 0xFFEF5350, CHIP_OFF = 0xFF3A3A3A, DIVIDER = 0xFF2C2C2C,
             YELLOW = 0xFF9A8A17;
     static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT, WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
-    static final int PAGE_PROFILES = 0, PAGE_SCHEDULE = 1, PAGE_SETTINGS = 2, PAGE_EDIT = 3;
+    static final int PAGE_PROFILES = 0, PAGE_SCHEDULE = 1, PAGE_SETTINGS = 2, PAGE_EDIT = 3, PAGE_MANAGE = 4;
     static final String[] DAY_FULL = {"Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"};
     static final int REQ_RINGTONE = 10, REQ_NOTIF_TONE = 11;
 
@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
     // profil yang sedang diedit (halaman PAGE_EDIT)
     private Profile editing;
     private boolean editingNew;
+    private int editReturn = PAGE_PROFILES;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -77,6 +78,7 @@ public class MainActivity extends Activity {
 
         FrameLayout frame = new FrameLayout(this);
         frame.setBackgroundColor(BG);
+        rootFrame = frame;
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -119,9 +121,13 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (drawerOpen) {
+            closeDrawer();
+            return;
+        }
         if (page == PAGE_EDIT) {
             editing = null;
-            go(PAGE_PROFILES);
+            go(editReturn);
         } else if (page != PAGE_PROFILES) {
             go(PAGE_PROFILES);
         } else {
@@ -148,16 +154,7 @@ public class MainActivity extends Activity {
                 onBackPressed();
                 return;
             }
-            PopupMenu pm = new PopupMenu(this, leftIcon);
-            Menu m = pm.getMenu();
-            m.add(0, PAGE_PROFILES, 0, "Profil");
-            m.add(0, PAGE_SCHEDULE, 1, "Jadwal (Scheduler)");
-            m.add(0, PAGE_SETTINGS, 2, "Pengaturan & izin");
-            pm.setOnMenuItemClickListener(it -> {
-                go(it.getItemId());
-                return true;
-            });
-            pm.show();
+            openDrawer();
         });
         bar.addView(leftIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
@@ -174,6 +171,177 @@ public class MainActivity extends Activity {
         rightIcon.setOnClickListener(v -> saveEditor());
         bar.addView(rightIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
         return bar;
+    }
+
+    // ================= laci menu samping =================
+    private FrameLayout rootFrame;
+    private View scrim;
+    private ScrollView drawer;
+    private boolean drawerOpen;
+
+    private void openDrawer() {
+        if (drawer != null) {
+            rootFrame.removeView(drawer);
+            rootFrame.removeView(scrim);
+        }
+        int w = (int) (getResources().getDisplayMetrics().widthPixels * 0.72);
+        scrim = new View(this);
+        scrim.setBackgroundColor(0x99000000);
+        scrim.setAlpha(0f);
+        scrim.setOnClickListener(v -> closeDrawer());
+        rootFrame.addView(scrim, new FrameLayout.LayoutParams(MATCH, MATCH));
+
+        drawer = new ScrollView(this);
+        drawer.setBackgroundColor(0xFF2B2B2B);
+        drawer.setElevation(dp(12));
+        drawer.addView(buildDrawer());
+        rootFrame.addView(drawer, new FrameLayout.LayoutParams(w, MATCH, Gravity.START));
+        drawer.setTranslationX(-w);
+        drawer.animate().translationX(0).setDuration(200).start();
+        scrim.animate().alpha(1f).setDuration(200).start();
+        drawerOpen = true;
+    }
+
+    private void closeDrawer() {
+        if (!drawerOpen || drawer == null) return;
+        drawerOpen = false;
+        final View d = drawer, sc = scrim;
+        d.animate().translationX(-d.getWidth()).setDuration(180)
+                .withEndAction(() -> {
+                    rootFrame.removeView(d);
+                    rootFrame.removeView(sc);
+                }).start();
+        sc.animate().alpha(0f).setDuration(180).start();
+    }
+
+    private View buildDrawer() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(0, 0, 0, dp(24));
+
+        // kepala laci
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.VERTICAL);
+        head.setGravity(Gravity.BOTTOM);
+        GradientDrawable hg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF4FD1D6, 0xFF00979D, 0xFF006A6E});
+        head.setBackground(hg);
+        head.setPadding(dp(20), dp(20), dp(20), dp(16));
+        head.setMinimumHeight(dp(130));
+        ImageView logo = icon(R.drawable.ic_p0, 0xFFFFFFFF);
+        head.addView(logo, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        TextView ht = text("Profil Suara", 20, 0xFFFFFFFF, true);
+        ht.setPadding(0, dp(10), 0, 0);
+        head.addView(ht);
+        Profile act = s.profile(s.activeId());
+        head.addView(text("Aktif: " + (act == null ? "—" : act.name), 14, 0xDDFFFFFF, false));
+        col.addView(head);
+
+        col.addView(drawerItem(R.drawable.ic_list, "Profil", page == PAGE_PROFILES, null, v -> navTo(PAGE_PROFILES)));
+        col.addView(divider());
+        col.addView(drawerItem(R.drawable.ic_edit, "Edit profil", page == PAGE_MANAGE || page == PAGE_EDIT, null,
+                v -> navTo(PAGE_MANAGE)));
+        col.addView(drawerItem(R.drawable.ic_tune, "Pengaturan & izin", page == PAGE_SETTINGS, null,
+                v -> navTo(PAGE_SETTINGS)));
+        col.addView(divider());
+
+        TextView adv = text("Fitur", 16, SUB, false);
+        adv.setPadding(dp(20), dp(18), dp(20), dp(6));
+        col.addView(adv);
+        col.addView(drawerItem(R.drawable.ic_p8, "Jadwal (Scheduler)", page == PAGE_SCHEDULE, s.schedOn(), v -> navTo(PAGE_SCHEDULE)));
+        col.addView(drawerItem(R.drawable.ic_stat, "Notifikasi status", false, s.showNotif(), v -> {
+            s.setShowNotif(!s.showNotif());
+            Engine.refresh(this);
+            closeDrawer();
+            toast(s.showNotif() ? "Notifikasi status dinyalakan" : "Notifikasi status dimatikan");
+        }));
+        col.addView(divider());
+
+        TextView more = text("Lainnya", 16, SUB, false);
+        more.setPadding(dp(20), dp(18), dp(20), dp(6));
+        col.addView(more);
+        col.addView(drawerItem(0, "Atur urutan profil", false, null, v -> {
+            closeDrawer();
+            reorderDialog();
+        }));
+        col.addView(drawerItem(0, "Ikuti jadwal sekarang", false, null, v -> {
+            closeDrawer();
+            Engine.followSchedule(this);
+            toast("Profil disesuaikan dengan jadwal");
+            render(false);
+        }));
+        col.addView(drawerItem(0, "Tentang", false, null, v -> {
+            closeDrawer();
+            new AlertDialog.Builder(this).setTitle("Profil Suara")
+                    .setMessage("Pengatur profil suara & jadwal harian.\nVersi " + versionName())
+                    .setPositiveButton("OK", null).show();
+        }));
+        return col;
+    }
+
+    private String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
+    private void navTo(int p) {
+        closeDrawer();
+        editing = null;
+        go(p);
+    }
+
+    /** Baris menu laci; toggle != null menampilkan lingkaran radio di kanan. */
+    private View drawerItem(int iconRes, String label, boolean selected, Boolean toggle, View.OnClickListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(20), 0, dp(16), 0);
+        row.setMinimumHeight(dp(54));
+        int fg = selected ? 0xFF26C6CC : TXT;
+        if (selected) {
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(0xFF1F4A4C);
+            g.setCornerRadius(dp(8));
+            row.setBackground(g);
+        } else {
+            row.setBackgroundResource(android.R.drawable.list_selector_background);
+        }
+        if (iconRes != 0) {
+            row.addView(icon(iconRes, fg), new LinearLayout.LayoutParams(dp(26), dp(26)));
+        }
+        TextView t = text(label, 17, fg, selected);
+        t.setPadding(iconRes != 0 ? dp(24) : 0, 0, 0, 0);
+        row.addView(t, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        if (toggle != null) {
+            View dot = new View(this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setStroke(dp(2), toggle ? 0xFF26C6CC : 0xFFBDBDBD);
+            if (toggle) {
+                g.setColor(0xFF26C6CC);
+                g.setStroke(dp(5), 0xFF2B2B2B);
+                LinearLayout ring = new LinearLayout(this);
+                GradientDrawable rg = new GradientDrawable();
+                rg.setShape(GradientDrawable.OVAL);
+                rg.setStroke(dp(2), 0xFF26C6CC);
+                ring.setBackground(rg);
+                ring.setPadding(dp(2), dp(2), dp(2), dp(2));
+                dot.setBackground(g);
+                ring.addView(dot, new LinearLayout.LayoutParams(dp(20), dp(20)));
+                row.addView(ring, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            } else {
+                dot.setBackground(g);
+                row.addView(dot, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            }
+        }
+        row.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
+        if (selected) lp.setMargins(dp(8), dp(6), dp(8), dp(6));
+        row.setLayoutParams(lp);
+        return row;
     }
 
     // ================= render =================
@@ -193,6 +361,10 @@ public class MainActivity extends Activity {
         } else if (page == PAGE_SETTINGS) {
             title.setText("Pengaturan");
             renderSettings();
+        } else if (page == PAGE_MANAGE) {
+            title.setText("Atur profil");
+            content.setPadding(0, 0, 0, dp(40));
+            renderManage();
         } else if (page == PAGE_EDIT) {
             title.setText(editingNew ? "Profil baru" : editing.name);
             content.setPadding(0, 0, 0, dp(40));
@@ -674,6 +846,7 @@ public class MainActivity extends Activity {
     // ================= halaman edit profil =================
     private void openEditor(Profile p) {
         editingNew = p == null;
+        editReturn = page == PAGE_EDIT ? editReturn : page;
         editing = editingNew ? Profile.make(0, "", 0, Profile.NORMAL, 70, 70, 50, 80, 50) : p.copy();
         go(PAGE_EDIT);
     }
@@ -695,7 +868,7 @@ public class MainActivity extends Activity {
         Engine.refresh(this);
         toast("Profil disimpan");
         editing = null;
-        go(PAGE_PROFILES);
+        go(editReturn);
     }
 
     private TextView section(String t) {
@@ -711,68 +884,177 @@ public class MainActivity extends Activity {
         return l;
     }
 
+    /** Halaman pengaturan profil ala Sound Profile: ringkasan per bagian, ketuk untuk mengubah. */
     private void renderEditor() {
         final Profile p = editing;
 
         // --- nama & ikon ---
-        LinearLayout head = body();
-        head.setPadding(dp(20), dp(14), dp(20), dp(4));
+        LinearLayout head = listRow();
+        head.addView(icon(p.iconRes(), 0xFFBDBDBD), new LinearLayout.LayoutParams(dp(30), dp(30)));
+        TextView nm = text(p.name == null || p.name.isEmpty() ? "(ketuk untuk memberi nama)" : p.name, 20, TXT, false);
+        nm.setPadding(dp(30), 0, 0, 0);
+        head.addView(nm, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        head.setOnClickListener(v -> nameIconDialog());
+        content.addView(head);
+
+        // --- volume ---
+        StringBuilder vb = new StringBuilder("Mode dering: " + p.modeLabel());
+        String[] vl = {"Panggilan", "Notifikasi", "Multimedia", "Alarm", "Sistem"};
+        int[] vv = p.values();
+        boolean normal = p.mode == Profile.NORMAL;
+        for (int i = 0; i < 5; i++) {
+            vb.append('\n').append(vl[i]).append(": ");
+            if (!normal && (i == 0 || i == 1 || i == 4)) vb.append("mati (").append(p.modeLabel().toLowerCase()).append(')');
+            else vb.append(vv[i] >= 0 ? vv[i] + "%" : "tidak diubah");
+        }
+        content.addView(summarySection("Volume", vb.toString(), null, v -> volumeDialog()));
+
+        // --- getaran ---
+        String[] tri = {"Tidak diubah", "Tidak", "Ya"};
+        String vib = "Getar saat ada panggilan: " + tri[p.vibRing + 1]
+                + "\nGetaran sentuh (touch feedback): " + tri[p.haptic + 1];
+        boolean vibWarn = (p.vibRing >= 0 || p.haptic >= 0) && !Settings.System.canWrite(this);
+        content.addView(summarySection("Getaran", vib,
+                vibWarn ? "Perlu izin “Ubah pengaturan sistem” — ketuk di sini" : null, v -> vibrationDialog()));
+
+        // --- jangan ganggu ---
+        String dnd;
+        if (p.dnd == Profile.DND_OFF) {
+            dnd = "Mode Jangan Ganggu tidak diaktifkan untuk profil ini";
+        } else {
+            dnd = p.dndLabel();
+            if (p.dnd == Profile.DND_PRIORITY && p.repeat) dnd += "\nPenelepon berulang diizinkan";
+        }
+        NotificationManager nmgr = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        boolean dndWarn = p.needsPolicy() && !nmgr.isNotificationPolicyAccessGranted();
+        content.addView(summarySection("Mode Jangan Ganggu", dnd,
+                dndWarn ? "Perlu akses Jangan Ganggu — ketuk di sini" : null, v -> dndDialog()));
+
+        // --- nada dering ---
+        String tones;
+        if (p.ringtone.isEmpty() && p.notifTone.isEmpty()) {
+            tones = "Profil ini tidak mengubah nada dering";
+        } else {
+            tones = "Nada panggilan: " + toneTitle(p.ringtone) + "\nSuara notifikasi: " + toneTitle(p.notifTone);
+        }
+        boolean toneWarn = (!p.ringtone.isEmpty() || !p.notifTone.isEmpty()) && !Settings.System.canWrite(this);
+        content.addView(summarySection("Nada dering", tones,
+                toneWarn ? "Perlu izin “Ubah pengaturan sistem” — ketuk di sini" : null, v -> toneDialog()));
+
+        // --- hapus ---
+        if (!editingNew) {
+            content.addView(divider());
+            LinearLayout del = listRow();
+            del.addView(icon(R.drawable.ic_delete, WARN), new LinearLayout.LayoutParams(dp(28), dp(28)));
+            TextView dt = text("Hapus profil ini", 17, WARN, false);
+            dt.setPadding(dp(30), 0, 0, 0);
+            del.addView(dt);
+            del.setOnClickListener(v -> deleteProfile(p));
+            content.addView(del);
+        }
+        TextView hint = text("Ketuk tiap bagian untuk mengubah, lalu ketuk ✓ di kanan atas untuk menyimpan.", 13, SUB, false);
+        hint.setPadding(dp(20), dp(20), dp(20), 0);
+        content.addView(hint);
+    }
+
+    /** Satu bagian: judul toska + ringkasan menjorok + (opsional) peringatan kuning. */
+    private View summarySection(String title, String body, String warning, View.OnClickListener l) {
+        LinearLayout sec = new LinearLayout(this);
+        sec.setOrientation(LinearLayout.VERTICAL);
+        sec.setBackgroundResource(android.R.drawable.list_selector_background);
+        sec.setPadding(dp(20), dp(22), dp(20), dp(18));
+        TextView h = text(title, 18, ACC_TXT, false);
+        h.setPadding(0, 0, 0, dp(14));
+        sec.addView(h);
+        TextView b = text(body, 17, TXT, false);
+        b.setLineSpacing(dp(2), 1f);
+        b.setPadding(dp(60), 0, 0, 0);
+        sec.addView(b);
+        if (warning != null) {
+            TextView w = text(warning, 16, 0xFFFFFFFF, false);
+            w.setBackgroundColor(YELLOW);
+            w.setPadding(dp(10), dp(8), dp(10), dp(8));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
+            lp.setMargins(dp(60), dp(14), 0, 0);
+            sec.addView(w, lp);
+            w.setOnClickListener(v -> {
+                if (title.startsWith("Mode Jangan"))
+                    open(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS));
+                else
+                    open(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + getPackageName())));
+            });
+        }
+        sec.setOnClickListener(l);
+        return sec;
+    }
+
+    private LinearLayout dialogBody() {
+        LinearLayout v = new LinearLayout(this);
+        v.setOrientation(LinearLayout.VERTICAL);
+        v.setPadding(dp(22), dp(8), dp(22), dp(8));
+        return v;
+    }
+
+    private void showSection(String title, View body, Runnable onOk) {
+        ScrollView sv = new ScrollView(this);
+        sv.addView(body);
+        new AlertDialog.Builder(this).setTitle(title).setView(sv)
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("OK", (d, w) -> {
+                    onOk.run();
+                    render(false);
+                }).show();
+    }
+
+    private void nameIconDialog() {
+        final Profile p = editing;
+        LinearLayout v = dialogBody();
         final EditText name = new EditText(this);
         name.setHint("Nama profil (mis. Kerja)");
         name.setText(p.name);
         name.setSingleLine();
-        name.setTextColor(TXT);
-        name.setHintTextColor(SUB);
-        name.setTextSize(20);
-        name.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence cs, int a, int b, int c) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence cs, int a, int b, int c) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable e) {
-                p.name = e.toString();
-            }
-        });
-        head.addView(name);
+        v.addView(name);
+        v.addView(label("Ikon"));
+        final int[] sel = {p.icon};
         final ImageView[] icons = new ImageView[Profile.ICONS.length];
-        final Runnable paintIcons = () -> {
+        final Runnable paint = () -> {
             for (int i = 0; i < icons.length; i++) {
                 GradientDrawable g = new GradientDrawable();
                 g.setShape(GradientDrawable.OVAL);
-                g.setColor(i == p.icon ? ACC : CHIP_OFF);
+                g.setColor(i == sel[0] ? ACC : CHIP_OFF);
                 icons[i].setBackground(g);
             }
         };
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        LinearLayout ir = new LinearLayout(this);
-        ir.setOrientation(LinearLayout.HORIZONTAL);
-        ir.setPadding(0, dp(10), 0, 0);
+        android.widget.GridLayout grid = new android.widget.GridLayout(this);
+        grid.setColumnCount(5);
         for (int i = 0; i < icons.length; i++) {
             final int idx = i;
             ImageView iv = icon(Profile.ICONS[i], 0xFFFFFFFF);
-            iv.setPadding(dp(9), dp(9), dp(9), dp(9));
+            iv.setPadding(dp(10), dp(10), dp(10), dp(10));
             iv.setOnClickListener(x -> {
-                p.icon = idx;
-                paintIcons.run();
+                sel[0] = idx;
+                paint.run();
             });
             icons[i] = iv;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(44));
-            lp.setMargins(0, 0, dp(8), 0);
-            ir.addView(iv, lp);
+            android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
+            lp.width = dp(46);
+            lp.height = dp(46);
+            lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+            grid.addView(iv, lp);
         }
-        paintIcons.run();
-        hs.addView(ir);
-        head.addView(hs);
-        content.addView(head);
+        paint.run();
+        v.addView(grid);
+        showSection("Nama & ikon", v, () -> {
+            p.name = name.getText().toString().trim();
+            p.icon = sel[0];
+            title.setText(p.name.isEmpty() ? "Profil baru" : p.name);
+        });
+    }
 
-        // --- volume ---
-        content.addView(section("Volume"));
-        LinearLayout vol = body();
+    private void volumeDialog() {
+        final Profile p = editing;
+        LinearLayout v = dialogBody();
+        v.addView(label("Mode dering"));
         final RadioGroup rg = new RadioGroup(this);
         rg.setOrientation(RadioGroup.HORIZONTAL);
         String[] modes = {"Normal", "Getar", "Senyap"};
@@ -780,13 +1062,15 @@ public class MainActivity extends Activity {
             RadioButton rb = new RadioButton(this);
             rb.setId(1000 + i);
             rb.setText(modes[i]);
-            rb.setTextColor(TXT);
             rg.addView(rb);
         }
         rg.check(1000 + p.mode);
-        vol.addView(rg);
-        final TextView note = text("Panggilan, notifikasi & sistem hanya dipakai saat mode Normal.", 12, SUB, false);
-        vol.addView(note);
+        v.addView(rg);
+        final TextView note = new TextView(this);
+        note.setText("Panggilan, notifikasi & sistem mati saat mode Getar/Senyap.");
+        note.setTextSize(12);
+        v.addView(note);
+        v.addView(label("Volume (hapus centang = tidak diubah)"));
 
         String[] labels = {"Panggilan", "Notifikasi", "Multimedia", "Alarm", "Sistem"};
         final int[] vals = p.values();
@@ -798,32 +1082,24 @@ public class MainActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(8), 0, 0);
             CheckBox cb = new CheckBox(this);
             cb.setText(labels[i]);
-            cb.setTextColor(TXT);
-            cb.setTextSize(16);
             cb.setChecked(vals[i] >= 0);
             row.addView(cb, new LinearLayout.LayoutParams(0, WRAP, 1f));
-            TextView tv = text(vals[i] >= 0 ? vals[i] + "%" : "tidak diubah", 15, TXT, false);
+            TextView tv = new TextView(this);
+            tv.setText(vals[i] >= 0 ? vals[i] + "%" : "tidak diubah");
             row.addView(tv);
             SeekBar sb = new SeekBar(this);
             sb.setMax(100);
             sb.setProgress(vals[i] >= 0 ? vals[i] : 50);
-            sb.setPadding(dp(16), dp(6), dp(16), dp(6));
+            sb.setPadding(dp(16), dp(4), dp(16), dp(12));
             cbs[i] = cb;
             bars[i] = sb;
             tvs[i] = tv;
-            final Runnable store = () -> {
-                int[] nv = p.values();
-                nv[idx] = cbs[idx].isChecked() ? bars[idx].getProgress() : -1;
-                p.setValues(nv);
-            };
             sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override
                 public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                     tvs[idx].setText(progress + "%");
-                    store.run();
                 }
 
                 @Override
@@ -837,18 +1113,14 @@ public class MainActivity extends Activity {
             cb.setOnCheckedChangeListener((bt, checked) -> {
                 bars[idx].setEnabled(checked && bt.isEnabled());
                 tvs[idx].setText(checked ? bars[idx].getProgress() + "%" : "tidak diubah");
-                store.run();
             });
-            vol.addView(row);
-            vol.addView(sb);
+            v.addView(row);
+            v.addView(sb);
         }
         final Runnable upd = () -> {
-            int m = rg.getCheckedRadioButtonId() - 1000;
-            p.mode = (m < 0 || m > 2) ? Profile.NORMAL : m;
-            boolean normal = p.mode == Profile.NORMAL;
-            int[] ringStreams = {0, 1, 4};
+            boolean normal = rg.getCheckedRadioButtonId() == 1000;
             for (int i = 0; i < 5; i++) {
-                boolean allowed = normal || (i != 0 && i != 1 && i != 4);
+                boolean allowed = normal || (i == 2 || i == 3);
                 cbs[i].setEnabled(allowed);
                 bars[i].setEnabled(allowed && cbs[i].isChecked());
             }
@@ -856,120 +1128,134 @@ public class MainActivity extends Activity {
         };
         rg.setOnCheckedChangeListener((g, id) -> upd.run());
         upd.run();
-        content.addView(vol);
 
-        // --- getaran ---
-        content.addView(divider());
-        content.addView(section("Getaran"));
-        LinearLayout vib = body();
-        String[] tri = {"Tidak diubah", "Mati", "Nyala"};
-        vib.addView(label("Getar saat ada panggilan"));
+        showSection("Volume", v, () -> {
+            int m = rg.getCheckedRadioButtonId() - 1000;
+            p.mode = (m < 0 || m > 2) ? Profile.NORMAL : m;
+            int[] nv = new int[5];
+            for (int i = 0; i < 5; i++) nv[i] = cbs[i].isChecked() ? bars[i].getProgress() : -1;
+            p.setValues(nv);
+        });
+    }
+
+    private void vibrationDialog() {
+        final Profile p = editing;
+        LinearLayout v = dialogBody();
+        String[] tri = {"Tidak diubah", "Tidak", "Ya"};
+        v.addView(label("Getar saat ada panggilan"));
         final Spinner vr = spinner(tri, p.vibRing + 1);
-        vr.setOnItemSelectedListener(onSelect(pos -> p.vibRing = pos - 1));
-        vib.addView(vr);
-        vib.addView(label("Getaran sentuh (touch feedback)"));
+        v.addView(vr);
+        v.addView(label("Getaran sentuh (touch feedback)"));
         final Spinner hp = spinner(tri, p.haptic + 1);
-        hp.setOnItemSelectedListener(onSelect(pos -> p.haptic = pos - 1));
-        vib.addView(hp);
-        writeSettingsWarning(vib);
-        content.addView(vib);
+        v.addView(hp);
+        TextView n = new TextView(this);
+        n.setText("Butuh izin “Ubah pengaturan sistem”. Di beberapa HP Samsung, getar saat panggilan dikunci oleh sistem.");
+        n.setTextSize(12);
+        n.setPadding(0, dp(12), 0, 0);
+        v.addView(n);
+        showSection("Getaran", v, () -> {
+            p.vibRing = Math.max(0, vr.getSelectedItemPosition()) - 1;
+            p.haptic = Math.max(0, hp.getSelectedItemPosition()) - 1;
+        });
+    }
 
-        // --- jangan ganggu ---
-        content.addView(divider());
-        content.addView(section("Mode Jangan Ganggu"));
-        LinearLayout dnd = body();
-        dnd.addView(text("Berlaku untuk seluruh HP selama profil ini aktif.", 13, SUB, false));
+    private void dndDialog() {
+        final Profile p = editing;
+        LinearLayout v = dialogBody();
+        v.addView(label("Mode Jangan Ganggu (berlaku untuk seluruh HP)"));
         final Spinner dndSp = spinner(new String[]{"Tidak diaktifkan", "Prioritas (pilih siapa yang boleh)",
                 "Hanya alarm", "Senyap total"}, p.dnd);
-        dnd.addView(dndSp);
+        v.addView(dndSp);
         final LinearLayout prio = new LinearLayout(this);
         prio.setOrientation(LinearLayout.VERTICAL);
         prio.addView(label("Panggilan yang boleh berdering"));
         final Spinner callSp = spinner(new String[]{"Semua orang", "Kontak saja",
                 "Kontak favorit (berbintang) saja", "Tidak ada"}, p.callers);
-        callSp.setOnItemSelectedListener(onSelect(pos -> p.callers = pos));
         prio.addView(callSp);
         final CheckBox rep = new CheckBox(this);
         rep.setText("Izinkan penelepon berulang (menelepon 2x dalam 15 menit)");
-        rep.setTextColor(TXT);
         rep.setChecked(p.repeat);
-        rep.setOnCheckedChangeListener((bt, c) -> p.repeat = c);
         prio.addView(rep);
-        dnd.addView(prio);
-        dndSp.setOnItemSelectedListener(onSelect(pos -> {
-            p.dnd = pos;
-            prio.setVisibility(pos == Profile.DND_PRIORITY ? View.VISIBLE : View.GONE);
-        }));
+        v.addView(prio);
+        dndSp.setOnItemSelectedListener(onSelect(pos ->
+                prio.setVisibility(pos == Profile.DND_PRIORITY ? View.VISIBLE : View.GONE)));
         prio.setVisibility(p.dnd == Profile.DND_PRIORITY ? View.VISIBLE : View.GONE);
-        content.addView(dnd);
-
-        // --- nada dering ---
-        content.addView(divider());
-        content.addView(section("Nada dering"));
-        LinearLayout tones = body();
-        tones.addView(toneRow("Nada panggilan", p.ringtone, RingtoneManager.TYPE_RINGTONE, REQ_RINGTONE));
-        tones.addView(toneRow("Suara notifikasi", p.notifTone, RingtoneManager.TYPE_NOTIFICATION, REQ_NOTIF_TONE));
-        writeSettingsWarning(tones);
-        content.addView(tones);
-
-        // --- hapus ---
-        if (!editingNew) {
-            content.addView(divider());
-            LinearLayout del = listRow();
-            del.addView(icon(R.drawable.ic_delete, WARN), new LinearLayout.LayoutParams(dp(28), dp(28)));
-            TextView dt = text("Hapus profil ini", 17, WARN, false);
-            dt.setPadding(dp(24), 0, 0, 0);
-            del.addView(dt);
-            del.setOnClickListener(v -> deleteProfile(p));
-            content.addView(del);
-        }
-    }
-
-    private void writeSettingsWarning(LinearLayout parent) {
-        if (Settings.System.canWrite(this)) return;
-        TextView w = text("Perlu izin “Ubah pengaturan sistem” agar bagian ini bisa diterapkan — ketuk di sini",
-                14, 0xFFFFFFFF, false);
-        w.setBackgroundColor(YELLOW);
-        w.setPadding(dp(12), dp(10), dp(12), dp(10));
-        w.setOnClickListener(v -> open(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                Uri.parse("package:" + getPackageName()))));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
-        lp.topMargin = dp(12);
-        parent.addView(w, lp);
-    }
-
-    private View toneRow(final String label, String value, final int type, final int req) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, dp(10), 0, dp(10));
-        row.setBackgroundResource(android.R.drawable.list_selector_background);
-        row.addView(text(label, 16, TXT, false));
-        row.addView(text(toneTitle(value), 14, SUB, false));
-        row.setOnClickListener(v -> {
-            String[] items = {"Tidak diubah", "Pilih nada…"};
-            new AlertDialog.Builder(this).setTitle(label).setItems(items, (d, w) -> {
-                if (w == 0) {
-                    if (req == REQ_RINGTONE) editing.ringtone = "";
-                    else editing.notifTone = "";
-                    render(false);
-                } else {
-                    Intent i = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
-                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, type);
-                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true);
-                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false);
-                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, label);
-                    String cur = req == REQ_RINGTONE ? editing.ringtone : editing.notifTone;
-                    if (cur != null && !cur.isEmpty() && !"silent".equals(cur))
-                        i.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(cur));
-                    try {
-                        startActivityForResult(i, req);
-                    } catch (Exception ex) {
-                        toast("Pemilih nada tidak tersedia");
-                    }
-                }
-            }).show();
+        showSection("Mode Jangan Ganggu", v, () -> {
+            p.dnd = Math.max(0, dndSp.getSelectedItemPosition());
+            p.callers = Math.max(0, callSp.getSelectedItemPosition());
+            p.repeat = rep.isChecked();
         });
-        return row;
+    }
+
+    private void toneDialog() {
+        final Profile p = editing;
+        String[] items = {"Nada panggilan: " + toneTitle(p.ringtone),
+                "Suara notifikasi: " + toneTitle(p.notifTone)};
+        new AlertDialog.Builder(this).setTitle("Nada dering").setItems(items, (d, w) -> {
+            if (w == 0) chooseTone("Nada panggilan", RingtoneManager.TYPE_RINGTONE, REQ_RINGTONE);
+            else chooseTone("Suara notifikasi", RingtoneManager.TYPE_NOTIFICATION, REQ_NOTIF_TONE);
+        }).setNegativeButton("Tutup", null).show();
+    }
+
+    private void chooseTone(final String label, final int type, final int req) {
+        String[] items = {"Tidak diubah", "Pilih nada…"};
+        new AlertDialog.Builder(this).setTitle(label).setItems(items, (d, w) -> {
+            if (w == 0) {
+                if (req == REQ_RINGTONE) editing.ringtone = "";
+                else editing.notifTone = "";
+                render(false);
+            } else {
+                Intent i = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+                i.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, type);
+                i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true);
+                i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false);
+                i.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, label);
+                String cur = req == REQ_RINGTONE ? editing.ringtone : editing.notifTone;
+                if (cur != null && !cur.isEmpty() && !"silent".equals(cur))
+                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(cur));
+                try {
+                    startActivityForResult(i, req);
+                } catch (Exception ex) {
+                    toast("Pemilih nada tidak tersedia");
+                }
+            }
+        }).show();
+    }
+
+    // ================= halaman atur profil =================
+    private void renderManage() {
+        TextView info = text("Pilih profil yang ingin diatur.", 14, SUB, false);
+        info.setPadding(dp(20), dp(14), dp(20), dp(6));
+        content.addView(info);
+        for (final Profile p : s.profiles()) {
+            content.addView(divider());
+            LinearLayout row = listRow();
+            row.addView(icon(p.iconRes(), 0xFFBDBDBD), new LinearLayout.LayoutParams(dp(30), dp(30)));
+            LinearLayout mid = new LinearLayout(this);
+            mid.setOrientation(LinearLayout.VERTICAL);
+            mid.setPadding(dp(24), 0, 0, 0);
+            mid.addView(text(p.name, 19, TXT, false));
+            mid.addView(text(p.summary(), 13, SUB, false));
+            row.addView(mid, new LinearLayout.LayoutParams(0, WRAP, 1f));
+            row.setOnClickListener(v -> openEditor(p));
+            content.addView(row);
+        }
+        content.addView(divider());
+        LinearLayout add = listRow();
+        add.addView(icon(R.drawable.ic_add, ACC_TXT), new LinearLayout.LayoutParams(dp(30), dp(30)));
+        TextView at = text("Tambah profil baru", 18, ACC_TXT, false);
+        at.setPadding(dp(24), 0, 0, 0);
+        add.addView(at);
+        add.setOnClickListener(v -> openEditor(null));
+        content.addView(add);
+        content.addView(divider());
+        LinearLayout ord = listRow();
+        ord.addView(icon(R.drawable.ic_menu, 0xFFBDBDBD), new LinearLayout.LayoutParams(dp(30), dp(30)));
+        TextView ot = text("Atur urutan profil", 18, TXT, false);
+        ot.setPadding(dp(24), 0, 0, 0);
+        ord.addView(ot);
+        ord.setOnClickListener(v -> reorderDialog());
+        content.addView(ord);
     }
 
     private String toneTitle(String v) {
