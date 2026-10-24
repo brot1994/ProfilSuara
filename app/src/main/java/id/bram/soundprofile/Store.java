@@ -16,6 +16,36 @@ public class Store {
     public Store(Context c) {
         sp = c.getApplicationContext().getSharedPreferences("data", Context.MODE_PRIVATE);
         if (sp.getInt("schema", 0) < 2) seed();
+        splitEntries();
+    }
+
+    /** Pecah jadwal multi-hari menjadi satu baris per hari (tampilan per hari). */
+    private void splitEntries() {
+        List<Entry> l = entries();
+        boolean changed = false;
+        List<Entry> out = new ArrayList<>();
+        for (Entry e : l) {
+            if (Integer.bitCount(e.days) <= 1) {
+                out.add(e);
+                continue;
+            }
+            changed = true;
+            for (int d = 0; d < 7; d++) {
+                if ((e.days & (1 << d)) == 0) continue;
+                Entry n = Entry.make(newId(), e.hour, e.minute, 1 << d, e.profileId);
+                n.enabled = e.enabled;
+                out.add(n);
+            }
+        }
+        if (changed) saveEntries(out);
+    }
+
+    public boolean schedOn() { return sp.getBoolean("schedOn", true); }
+    public void setSchedOn(boolean b) { sp.edit().putBoolean("schedOn", b).commit(); }
+
+    /** Jadwal yang dipakai mesin (kosong bila scheduler dimatikan). */
+    public List<Entry> schedEntries() {
+        return schedOn() ? entries() : new ArrayList<>();
     }
 
     private void seed() {

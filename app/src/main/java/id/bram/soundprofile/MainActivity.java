@@ -11,16 +11,21 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -40,22 +45,30 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.List;
 
 public class MainActivity extends Activity {
     static final int BG = 0xFF121212, BAR = 0xFF00979D, BAR_DARK = 0xFF006A6E, CARD = 0xFF1E1E1E,
-            TXT = 0xFFEEEEEE, SUB = 0xFF9E9E9E, ACC = 0xFF00979D, PILL = 0xFFA9A9A9,
-            PILL_TXT = 0xFF111111, WARN = 0xFFEF5350, CHIP_OFF = 0xFF3A3A3A;
+            TXT = 0xFFEEEEEE, SUB = 0xFF9E9E9E, ACC = 0xFF00979D, ACC_TXT = 0xFF26B5BB, PILL = 0xFFA9A9A9,
+            PILL_TXT = 0xFF111111, WARN = 0xFFEF5350, CHIP_OFF = 0xFF3A3A3A, DIVIDER = 0xFF2C2C2C,
+            YELLOW = 0xFF9A8A17;
     static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT, WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
-    static final int PAGE_PROFILES = 0, PAGE_SCHEDULE = 1, PAGE_SETTINGS = 2;
+    static final int PAGE_PROFILES = 0, PAGE_SCHEDULE = 1, PAGE_SETTINGS = 2, PAGE_EDIT = 3;
+    static final String[] DAY_FULL = {"Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"};
+    static final int REQ_RINGTONE = 10, REQ_NOTIF_TONE = 11;
 
     private LinearLayout content;
     private TextView title;
-    private ImageView fab;
+    private ImageView leftIcon, rightIcon, fab;
     private ScrollView scroll;
     private Store s;
     private int page = PAGE_PROFILES;
+
+    // profil yang sedang diedit (halaman PAGE_EDIT)
+    private Profile editing;
+    private boolean editingNew;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -73,7 +86,6 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(12), dp(14), dp(96));
         scroll.addView(content);
         col.addView(scroll, new LinearLayout.LayoutParams(MATCH, 0, 1f));
         frame.addView(col, new FrameLayout.LayoutParams(MATCH, MATCH));
@@ -87,10 +99,7 @@ public class MainActivity extends Activity {
         fab.setBackground(fg);
         fab.setPadding(dp(16), dp(16), dp(16), dp(16));
         fab.setElevation(dp(6));
-        fab.setOnClickListener(v -> {
-            if (page == PAGE_SCHEDULE) editEntry(null);
-            else editProfile(null);
-        });
+        fab.setOnClickListener(v -> openEditor(null));
         FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM | Gravity.END);
         flp.setMargins(0, 0, dp(22), dp(26));
         frame.addView(fab, flp);
@@ -105,17 +114,24 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        render();
+        render(false);
     }
 
     @Override
     public void onBackPressed() {
-        if (page != PAGE_PROFILES) {
-            page = PAGE_PROFILES;
-            render();
+        if (page == PAGE_EDIT) {
+            editing = null;
+            go(PAGE_PROFILES);
+        } else if (page != PAGE_PROFILES) {
+            go(PAGE_PROFILES);
         } else {
             super.onBackPressed();
         }
+    }
+
+    private void go(int p) {
+        page = p;
+        render(true);
     }
 
     private View appBar() {
@@ -125,66 +141,86 @@ public class MainActivity extends Activity {
         bar.setBackgroundColor(BAR);
         bar.setPadding(dp(8), 0, dp(8), 0);
 
-        final ImageView menu = icon(R.drawable.ic_menu, 0xFFFFFFFF);
-        menu.setPadding(dp(12), dp(12), dp(12), dp(12));
-        menu.setOnClickListener(v -> {
-            PopupMenu pm = new PopupMenu(this, menu);
+        leftIcon = icon(R.drawable.ic_menu, 0xFFFFFFFF);
+        leftIcon.setPadding(dp(12), dp(12), dp(12), dp(12));
+        leftIcon.setOnClickListener(v -> {
+            if (page == PAGE_EDIT) {
+                onBackPressed();
+                return;
+            }
+            PopupMenu pm = new PopupMenu(this, leftIcon);
             Menu m = pm.getMenu();
             m.add(0, PAGE_PROFILES, 0, "Profil");
-            m.add(0, PAGE_SCHEDULE, 1, "Jadwal");
+            m.add(0, PAGE_SCHEDULE, 1, "Jadwal (Scheduler)");
             m.add(0, PAGE_SETTINGS, 2, "Pengaturan & izin");
             pm.setOnMenuItemClickListener(it -> {
-                page = it.getItemId();
-                render();
+                go(it.getItemId());
                 return true;
             });
             pm.show();
         });
-        bar.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        bar.addView(leftIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
         title = new TextView(this);
         title.setTextColor(0xFFFFFFFF);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(12), 0, 0, 0);
+        title.setSingleLine();
+        title.setPadding(dp(14), 0, 0, 0);
         bar.addView(title, new LinearLayout.LayoutParams(0, WRAP, 1f));
+
+        rightIcon = icon(R.drawable.ic_check, 0xFFFFFFFF);
+        rightIcon.setPadding(dp(12), dp(12), dp(12), dp(12));
+        rightIcon.setOnClickListener(v -> saveEditor());
+        bar.addView(rightIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
         return bar;
     }
 
     // ================= render =================
-    private void render() {
+    private void render(boolean toTop) {
         content.removeAllViews();
-        scroll.scrollTo(0, 0);
-        fab.setVisibility(page == PAGE_SETTINGS ? View.GONE : View.VISIBLE);
+        if (toTop) scroll.scrollTo(0, 0);
+        fab.setVisibility(page == PAGE_PROFILES ? View.VISIBLE : View.GONE);
+        rightIcon.setVisibility(page == PAGE_EDIT ? View.VISIBLE : View.GONE);
+        leftIcon.setImageResource(page == PAGE_EDIT ? R.drawable.ic_back : R.drawable.ic_menu);
+        content.setPadding(dp(14), dp(12), dp(14), dp(96));
+        if (page == PAGE_EDIT && editing == null) page = PAGE_PROFILES;
+
         if (page == PAGE_SCHEDULE) {
             title.setText("Jadwal");
+            content.setPadding(0, 0, 0, dp(40));
             renderSchedule();
         } else if (page == PAGE_SETTINGS) {
             title.setText("Pengaturan");
             renderSettings();
+        } else if (page == PAGE_EDIT) {
+            title.setText(editingNew ? "Profil baru" : editing.name);
+            content.setPadding(0, 0, 0, dp(40));
+            renderEditor();
         } else {
             title.setText("Profil Suara");
             renderProfiles();
         }
     }
 
+    // ================= halaman profil (depan) =================
     private void renderProfiles() {
         long now = System.currentTimeMillis();
         long active = s.activeId();
         long tu = s.tempUntil();
 
-        // baris status
         LinearLayout st = new LinearLayout(this);
         st.setOrientation(LinearLayout.HORIZONTAL);
         st.setGravity(Gravity.CENTER_VERTICAL);
         st.setPadding(dp(6), 0, dp(6), dp(10));
-        st.addView(text(Engine.statusLine(this, s), 13, SUB, false), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        String line = s.schedOn() ? Engine.statusLine(this, s) : "Jadwal dimatikan";
+        st.addView(text(line, 13, SUB, false), new LinearLayout.LayoutParams(0, WRAP, 1f));
         if (tu > now) {
-            TextView cancel = text("Batalkan", 13, ACC, true);
+            TextView cancel = text("Batalkan", 13, ACC_TXT, true);
             cancel.setPadding(dp(10), dp(6), 0, dp(6));
             cancel.setOnClickListener(v -> {
                 Engine.followSchedule(this);
-                render();
+                render(false);
             });
             st.addView(cancel);
         }
@@ -197,10 +233,7 @@ public class MainActivity extends Activity {
             g.setCornerRadius(dp(14));
             warn.setBackground(g);
             warn.setPadding(dp(16), dp(12), dp(16), dp(12));
-            warn.setOnClickListener(v -> {
-                page = PAGE_SETTINGS;
-                render();
-            });
+            warn.setOnClickListener(v -> go(PAGE_SETTINGS));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
             lp.bottomMargin = dp(12);
             content.addView(warn, lp);
@@ -211,7 +244,7 @@ public class MainActivity extends Activity {
             content.addView(pill(p, on, on && tu > now ? "sampai " + Engine.fmtTime(tu) : null));
         }
 
-        TextView hint = text("Ketuk = aktifkan · ikon jam = sementara · tekan lama = edit", 12, SUB, false);
+        TextView hint = text("Ketuk = aktifkan · ikon jam = sementara · tekan lama = pengaturan profil", 12, SUB, false);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, dp(8), 0, 0);
         content.addView(hint);
@@ -248,7 +281,7 @@ public class MainActivity extends Activity {
 
         row.setOnClickListener(v -> activate(p, 0));
         row.setOnLongClickListener(v -> {
-            profileMenu(p);
+            openEditor(p);
             return true;
         });
 
@@ -274,48 +307,614 @@ public class MainActivity extends Activity {
         Engine.activate(this, p.id, minutes);
         if (minutes > 0)
             toast(p.name + " aktif sampai " + Engine.fmtTime(System.currentTimeMillis() + minutes * 60000L));
-        render();
+        render(false);
     }
 
-    // ================= jadwal =================
-    private void renderSchedule() {
-        TextView info = text(Engine.statusLine(this, s), 13, SUB, false);
-        info.setPadding(dp(6), 0, dp(6), dp(10));
-        content.addView(info);
+    private void durationDialog(final Profile p) {
+        final String[] labels = {"15 menit", "30 menit", "45 menit", "1 jam", "1,5 jam", "2 jam", "3 jam",
+                "Sampai jam…", "Lainnya (menit)…"};
+        final int[] mins = {15, 30, 45, 60, 90, 120, 180};
+        new AlertDialog.Builder(this).setTitle(p.name + " selama…").setItems(labels, (d, w) -> {
+            if (w < mins.length) {
+                activate(p, mins[w]);
+            } else if (w == mins.length) {
+                Calendar k = Calendar.getInstance();
+                k.add(Calendar.HOUR_OF_DAY, 1);
+                new TimePickerDialog(this, (tp, h, m) -> {
+                    Calendar t = Calendar.getInstance();
+                    t.set(Calendar.HOUR_OF_DAY, h);
+                    t.set(Calendar.MINUTE, m);
+                    t.set(Calendar.SECOND, 0);
+                    long diff = t.getTimeInMillis() - System.currentTimeMillis();
+                    if (diff <= 0) diff += 24L * 3600000L;
+                    activate(p, (int) Math.max(1, Math.round(diff / 60000.0)));
+                }, k.get(Calendar.HOUR_OF_DAY), 0, true).show();
+            } else {
+                final EditText et = new EditText(this);
+                et.setInputType(InputType.TYPE_CLASS_NUMBER);
+                et.setHint("Menit");
+                LinearLayout box = new LinearLayout(this);
+                box.setPadding(dp(20), dp(8), dp(20), 0);
+                box.addView(et, new LinearLayout.LayoutParams(MATCH, WRAP));
+                new AlertDialog.Builder(this).setTitle("Berapa menit?").setView(box)
+                        .setNegativeButton("Batal", null)
+                        .setPositiveButton("OK", (d2, w2) -> {
+                            int m = 0;
+                            try {
+                                m = Integer.parseInt(et.getText().toString().trim());
+                            } catch (Exception ignored) {
+                            }
+                            if (m > 0 && m <= 24 * 60) activate(p, m);
+                            else toast("Isi 1 sampai 1440 menit");
+                        }).show();
+            }
+        }).show();
+    }
 
-        List<Entry> es = s.entries();
-        Collections.sort(es, (a, b) -> (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute));
-        if (es.isEmpty()) content.addView(text("Belum ada jadwal. Ketuk + untuk menambah.", 14, SUB, false));
-        for (final Entry e : es) {
-            LinearLayout c = card();
-            c.setOrientation(LinearLayout.HORIZONTAL);
-            c.setGravity(Gravity.CENTER_VERTICAL);
-            Profile p = s.profile(e.profileId);
-            if (p != null) c.addView(icon(p.iconRes(), TXT), new LinearLayout.LayoutParams(dp(28), dp(28)));
-            LinearLayout left = new LinearLayout(this);
-            left.setOrientation(LinearLayout.VERTICAL);
-            left.setPadding(dp(14), 0, 0, 0);
-            left.addView(text(Engine.hm(e.hour, e.minute) + "  →  " + (p == null ? "?" : p.name), 19, TXT, true));
-            left.addView(text(Engine.daysLabel(e.days), 13, SUB, false));
-            c.addView(left, new LinearLayout.LayoutParams(0, WRAP, 1f));
-            Switch sw = new Switch(this);
-            sw.setChecked(e.enabled);
-            sw.setOnCheckedChangeListener((bt, checked) -> {
-                List<Entry> l = s.entries();
-                for (Entry x : l) if (x.id == e.id) x.enabled = checked;
-                s.saveEntries(l);
-                Engine.markSeen(this);
-                Engine.refresh(this);
-                content.post(this::render);
-            });
-            c.addView(sw);
-            c.setAlpha(e.enabled ? 1f : 0.5f);
-            c.setOnClickListener(v -> editEntry(e));
-            content.addView(c);
+    // ================= halaman jadwal (per hari) =================
+    private void renderSchedule() {
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.VERTICAL);
+        top.setPadding(dp(20), dp(14), dp(20), dp(14));
+        top.setBackgroundColor(0xFF1A1A1A);
+        Switch on = new Switch(this);
+        on.setText("Jadwal aktif");
+        on.setTextColor(TXT);
+        on.setTextSize(17);
+        on.setChecked(s.schedOn());
+        on.setOnCheckedChangeListener((bt, checked) -> {
+            s.setSchedOn(checked);
+            if (checked) Engine.markSeen(this);
+            Engine.refresh(this);
+            content.post(() -> render(false));
+        });
+        top.addView(on);
+        top.addView(text(s.schedOn() ? Engine.statusLine(this, s) : "Profil tidak akan berganti otomatis",
+                13, SUB, false));
+        content.addView(top);
+
+        List<Entry> all = s.entries();
+        Collections.sort(all, (a, b) -> (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute));
+        int today = Engine.dayBit(Calendar.getInstance());
+
+        for (int d = 0; d < 7; d++) {
+            final int day = d;
+            content.addView(divider());
+            TextView h = text(DAY_FULL[d] + (d == today ? "  (hari ini)" : ""), 18, ACC_TXT, false);
+            h.setPadding(dp(20), dp(22), dp(20), dp(8));
+            content.addView(h);
+
+            for (final Entry e : all) {
+                if ((e.days & (1 << d)) == 0) continue;
+                Profile p = s.profile(e.profileId);
+                LinearLayout row = listRow();
+                ImageView del = icon(R.drawable.ic_delete, 0xFFBDBDBD);
+                del.setPadding(dp(4), dp(4), dp(4), dp(4));
+                del.setOnClickListener(v -> deleteEntry(e));
+                row.addView(del, new LinearLayout.LayoutParams(dp(32), dp(32)));
+                TextView t = text(Engine.hm(e.hour, e.minute) + "  " + (p == null ? "?" : p.name), 20, TXT, false);
+                t.setPadding(dp(28), 0, 0, 0);
+                row.addView(t, new LinearLayout.LayoutParams(0, WRAP, 1f));
+                if (p != null) row.addView(icon(p.iconRes(), SUB), new LinearLayout.LayoutParams(dp(24), dp(24)));
+                row.setOnClickListener(v -> entryDialog(e, day));
+                content.addView(row);
+            }
+
+            LinearLayout add = listRow();
+            add.addView(icon(R.drawable.ic_add, 0xFFBDBDBD), new LinearLayout.LayoutParams(dp(32), dp(32)));
+            TextView at = text("Tambah waktu", 17, 0xFFBDBDBD, false);
+            at.setPadding(dp(28), 0, 0, 0);
+            add.addView(at);
+            add.setOnClickListener(v -> entryDialog(null, day));
+            content.addView(add);
+
+            LinearLayout copy = listRow();
+            copy.addView(icon(R.drawable.ic_copy, 0xFFBDBDBD), new LinearLayout.LayoutParams(dp(28), dp(28)));
+            TextView ct = text("Salin ke hari berikutnya (" + DAY_FULL[(d + 1) % 7] + ")", 17, 0xFFBDBDBD, false);
+            ct.setPadding(dp(30), 0, 0, 0);
+            copy.addView(ct);
+            copy.setOnClickListener(v -> copyDay(day, (day + 1) % 7));
+            content.addView(copy);
         }
     }
 
-    // ================= pengaturan =================
+    private LinearLayout listRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(20), dp(12), dp(20), dp(12));
+        row.setMinimumHeight(dp(58));
+        row.setBackgroundResource(android.R.drawable.list_selector_background);
+        return row;
+    }
+
+    private View divider() {
+        View v = new View(this);
+        v.setBackgroundColor(DIVIDER);
+        v.setLayoutParams(new LinearLayout.LayoutParams(MATCH, dp(1)));
+        return v;
+    }
+
+    private void deleteEntry(Entry e) {
+        List<Entry> l = s.entries();
+        for (int i = l.size() - 1; i >= 0; i--) if (l.get(i).id == e.id) l.remove(i);
+        s.saveEntries(l);
+        Engine.refresh(this);
+        render(false);
+    }
+
+    private void copyDay(final int from, final int to) {
+        final List<Entry> l = s.entries();
+        int count = 0, existing = 0;
+        for (Entry e : l) {
+            if ((e.days & (1 << from)) != 0) count++;
+            if ((e.days & (1 << to)) != 0) existing++;
+        }
+        if (count == 0) {
+            toast(DAY_FULL[from] + " belum punya jadwal");
+            return;
+        }
+        Runnable doCopy = () -> {
+            List<Entry> out = new ArrayList<>();
+            List<Entry> src = new ArrayList<>();
+            for (Entry e : l) {
+                if ((e.days & (1 << to)) != 0) continue; // ganti jadwal hari tujuan
+                out.add(e);
+                if ((e.days & (1 << from)) != 0) src.add(e);
+            }
+            for (Entry e : src) {
+                Entry n = Entry.make(s.newId(), e.hour, e.minute, 1 << to, e.profileId);
+                n.enabled = e.enabled;
+                out.add(n);
+            }
+            s.saveEntries(out);
+            Engine.markSeen(this);
+            Engine.refresh(this);
+            toast("Disalin ke " + DAY_FULL[to]);
+            render(false);
+        };
+        if (existing > 0) {
+            new AlertDialog.Builder(this).setTitle("Salin ke " + DAY_FULL[to] + "?")
+                    .setMessage("Jadwal " + DAY_FULL[to] + " yang sudah ada akan diganti dengan jadwal " + DAY_FULL[from] + ".")
+                    .setNegativeButton("Batal", null)
+                    .setPositiveButton("Salin", (d, w) -> doCopy.run())
+                    .show();
+        } else {
+            doCopy.run();
+        }
+    }
+
+    private void entryDialog(final Entry src, final int day) {
+        final List<Profile> ps = s.profiles();
+        if (ps.isEmpty()) {
+            toast("Buat profil dulu");
+            return;
+        }
+        final boolean isNew = src == null;
+        final int[] hm = {isNew ? 7 : src.hour, isNew ? 0 : src.minute};
+
+        LinearLayout v = new LinearLayout(this);
+        v.setOrientation(LinearLayout.VERTICAL);
+        v.setPadding(dp(20), dp(8), dp(20), dp(8));
+        v.addView(label("Jam"));
+        final Button tb = new Button(this);
+        tb.setTextSize(28);
+        tb.setText(Engine.hm(hm[0], hm[1]));
+        tb.setOnClickListener(x -> new TimePickerDialog(this, (tp, h, m) -> {
+            hm[0] = h;
+            hm[1] = m;
+            tb.setText(Engine.hm(h, m));
+        }, hm[0], hm[1], true).show());
+        v.addView(tb);
+        v.addView(label("Profil"));
+        String[] names = new String[ps.size()];
+        int sel = 0;
+        for (int i = 0; i < ps.size(); i++) {
+            names[i] = ps.get(i).name;
+            if (!isNew && ps.get(i).id == src.profileId) sel = i;
+        }
+        final Spinner sp = spinner(names, sel);
+        v.addView(sp);
+
+        final AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle((isNew ? "Tambah waktu — " : "Ubah — ") + DAY_FULL[day])
+                .setView(v)
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("Simpan", null)
+                .create();
+        dlg.setOnShowListener(di -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(x -> {
+            int pos = Math.max(0, sp.getSelectedItemPosition());
+            long pid = ps.get(pos).id;
+            List<Entry> l = s.entries();
+            if (isNew) {
+                l.add(Entry.make(s.newId(), hm[0], hm[1], 1 << day, pid));
+            } else {
+                for (Entry e : l) {
+                    if (e.id == src.id) {
+                        e.hour = hm[0];
+                        e.minute = hm[1];
+                        e.profileId = pid;
+                    }
+                }
+            }
+            s.saveEntries(l);
+            Engine.markSeen(this);
+            Engine.refresh(this);
+            render(false);
+            dlg.dismiss();
+        }));
+        dlg.show();
+    }
+
+    // ================= halaman edit profil =================
+    private void openEditor(Profile p) {
+        editingNew = p == null;
+        editing = editingNew ? Profile.make(0, "", 0, Profile.NORMAL, 70, 70, 50, 80, 50) : p.copy();
+        go(PAGE_EDIT);
+    }
+
+    private void saveEditor() {
+        if (editing == null) return;
+        Profile p = editing;
+        if (p.name == null || p.name.trim().isEmpty()) p.name = "Profil";
+        p.name = p.name.trim();
+        List<Profile> l = s.profiles();
+        if (editingNew) {
+            p.id = s.newId();
+            l.add(p);
+        } else {
+            for (int i = 0; i < l.size(); i++) if (l.get(i).id == p.id) l.set(i, p);
+        }
+        s.saveProfiles(l);
+        if (p.id == s.activeId()) Engine.applyAudio(this, p);
+        Engine.refresh(this);
+        toast("Profil disimpan");
+        editing = null;
+        go(PAGE_PROFILES);
+    }
+
+    private TextView section(String t) {
+        TextView tv = text(t, 18, ACC_TXT, false);
+        tv.setPadding(dp(20), dp(26), dp(20), dp(10));
+        return tv;
+    }
+
+    private LinearLayout body() {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(dp(20), 0, dp(20), dp(6));
+        return l;
+    }
+
+    private void renderEditor() {
+        final Profile p = editing;
+
+        // --- nama & ikon ---
+        LinearLayout head = body();
+        head.setPadding(dp(20), dp(14), dp(20), dp(4));
+        final EditText name = new EditText(this);
+        name.setHint("Nama profil (mis. Kerja)");
+        name.setText(p.name);
+        name.setSingleLine();
+        name.setTextColor(TXT);
+        name.setHintTextColor(SUB);
+        name.setTextSize(20);
+        name.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence cs, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence cs, int a, int b, int c) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable e) {
+                p.name = e.toString();
+            }
+        });
+        head.addView(name);
+        final ImageView[] icons = new ImageView[Profile.ICONS.length];
+        final Runnable paintIcons = () -> {
+            for (int i = 0; i < icons.length; i++) {
+                GradientDrawable g = new GradientDrawable();
+                g.setShape(GradientDrawable.OVAL);
+                g.setColor(i == p.icon ? ACC : CHIP_OFF);
+                icons[i].setBackground(g);
+            }
+        };
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        LinearLayout ir = new LinearLayout(this);
+        ir.setOrientation(LinearLayout.HORIZONTAL);
+        ir.setPadding(0, dp(10), 0, 0);
+        for (int i = 0; i < icons.length; i++) {
+            final int idx = i;
+            ImageView iv = icon(Profile.ICONS[i], 0xFFFFFFFF);
+            iv.setPadding(dp(9), dp(9), dp(9), dp(9));
+            iv.setOnClickListener(x -> {
+                p.icon = idx;
+                paintIcons.run();
+            });
+            icons[i] = iv;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(44));
+            lp.setMargins(0, 0, dp(8), 0);
+            ir.addView(iv, lp);
+        }
+        paintIcons.run();
+        hs.addView(ir);
+        head.addView(hs);
+        content.addView(head);
+
+        // --- volume ---
+        content.addView(section("Volume"));
+        LinearLayout vol = body();
+        final RadioGroup rg = new RadioGroup(this);
+        rg.setOrientation(RadioGroup.HORIZONTAL);
+        String[] modes = {"Normal", "Getar", "Senyap"};
+        for (int i = 0; i < 3; i++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(1000 + i);
+            rb.setText(modes[i]);
+            rb.setTextColor(TXT);
+            rg.addView(rb);
+        }
+        rg.check(1000 + p.mode);
+        vol.addView(rg);
+        final TextView note = text("Panggilan, notifikasi & sistem hanya dipakai saat mode Normal.", 12, SUB, false);
+        vol.addView(note);
+
+        String[] labels = {"Panggilan", "Notifikasi", "Multimedia", "Alarm", "Sistem"};
+        final int[] vals = p.values();
+        final CheckBox[] cbs = new CheckBox[5];
+        final SeekBar[] bars = new SeekBar[5];
+        final TextView[] tvs = new TextView[5];
+        for (int i = 0; i < 5; i++) {
+            final int idx = i;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(8), 0, 0);
+            CheckBox cb = new CheckBox(this);
+            cb.setText(labels[i]);
+            cb.setTextColor(TXT);
+            cb.setTextSize(16);
+            cb.setChecked(vals[i] >= 0);
+            row.addView(cb, new LinearLayout.LayoutParams(0, WRAP, 1f));
+            TextView tv = text(vals[i] >= 0 ? vals[i] + "%" : "tidak diubah", 15, TXT, false);
+            row.addView(tv);
+            SeekBar sb = new SeekBar(this);
+            sb.setMax(100);
+            sb.setProgress(vals[i] >= 0 ? vals[i] : 50);
+            sb.setPadding(dp(16), dp(6), dp(16), dp(6));
+            cbs[i] = cb;
+            bars[i] = sb;
+            tvs[i] = tv;
+            final Runnable store = () -> {
+                int[] nv = p.values();
+                nv[idx] = cbs[idx].isChecked() ? bars[idx].getProgress() : -1;
+                p.setValues(nv);
+            };
+            sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    tvs[idx].setText(progress + "%");
+                    store.run();
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                }
+            });
+            cb.setOnCheckedChangeListener((bt, checked) -> {
+                bars[idx].setEnabled(checked && bt.isEnabled());
+                tvs[idx].setText(checked ? bars[idx].getProgress() + "%" : "tidak diubah");
+                store.run();
+            });
+            vol.addView(row);
+            vol.addView(sb);
+        }
+        final Runnable upd = () -> {
+            int m = rg.getCheckedRadioButtonId() - 1000;
+            p.mode = (m < 0 || m > 2) ? Profile.NORMAL : m;
+            boolean normal = p.mode == Profile.NORMAL;
+            int[] ringStreams = {0, 1, 4};
+            for (int i = 0; i < 5; i++) {
+                boolean allowed = normal || (i != 0 && i != 1 && i != 4);
+                cbs[i].setEnabled(allowed);
+                bars[i].setEnabled(allowed && cbs[i].isChecked());
+            }
+            note.setVisibility(normal ? View.GONE : View.VISIBLE);
+        };
+        rg.setOnCheckedChangeListener((g, id) -> upd.run());
+        upd.run();
+        content.addView(vol);
+
+        // --- getaran ---
+        content.addView(divider());
+        content.addView(section("Getaran"));
+        LinearLayout vib = body();
+        String[] tri = {"Tidak diubah", "Mati", "Nyala"};
+        vib.addView(label("Getar saat ada panggilan"));
+        final Spinner vr = spinner(tri, p.vibRing + 1);
+        vr.setOnItemSelectedListener(onSelect(pos -> p.vibRing = pos - 1));
+        vib.addView(vr);
+        vib.addView(label("Getaran sentuh (touch feedback)"));
+        final Spinner hp = spinner(tri, p.haptic + 1);
+        hp.setOnItemSelectedListener(onSelect(pos -> p.haptic = pos - 1));
+        vib.addView(hp);
+        writeSettingsWarning(vib);
+        content.addView(vib);
+
+        // --- jangan ganggu ---
+        content.addView(divider());
+        content.addView(section("Mode Jangan Ganggu"));
+        LinearLayout dnd = body();
+        dnd.addView(text("Berlaku untuk seluruh HP selama profil ini aktif.", 13, SUB, false));
+        final Spinner dndSp = spinner(new String[]{"Tidak diaktifkan", "Prioritas (pilih siapa yang boleh)",
+                "Hanya alarm", "Senyap total"}, p.dnd);
+        dnd.addView(dndSp);
+        final LinearLayout prio = new LinearLayout(this);
+        prio.setOrientation(LinearLayout.VERTICAL);
+        prio.addView(label("Panggilan yang boleh berdering"));
+        final Spinner callSp = spinner(new String[]{"Semua orang", "Kontak saja",
+                "Kontak favorit (berbintang) saja", "Tidak ada"}, p.callers);
+        callSp.setOnItemSelectedListener(onSelect(pos -> p.callers = pos));
+        prio.addView(callSp);
+        final CheckBox rep = new CheckBox(this);
+        rep.setText("Izinkan penelepon berulang (menelepon 2x dalam 15 menit)");
+        rep.setTextColor(TXT);
+        rep.setChecked(p.repeat);
+        rep.setOnCheckedChangeListener((bt, c) -> p.repeat = c);
+        prio.addView(rep);
+        dnd.addView(prio);
+        dndSp.setOnItemSelectedListener(onSelect(pos -> {
+            p.dnd = pos;
+            prio.setVisibility(pos == Profile.DND_PRIORITY ? View.VISIBLE : View.GONE);
+        }));
+        prio.setVisibility(p.dnd == Profile.DND_PRIORITY ? View.VISIBLE : View.GONE);
+        content.addView(dnd);
+
+        // --- nada dering ---
+        content.addView(divider());
+        content.addView(section("Nada dering"));
+        LinearLayout tones = body();
+        tones.addView(toneRow("Nada panggilan", p.ringtone, RingtoneManager.TYPE_RINGTONE, REQ_RINGTONE));
+        tones.addView(toneRow("Suara notifikasi", p.notifTone, RingtoneManager.TYPE_NOTIFICATION, REQ_NOTIF_TONE));
+        writeSettingsWarning(tones);
+        content.addView(tones);
+
+        // --- hapus ---
+        if (!editingNew) {
+            content.addView(divider());
+            LinearLayout del = listRow();
+            del.addView(icon(R.drawable.ic_delete, WARN), new LinearLayout.LayoutParams(dp(28), dp(28)));
+            TextView dt = text("Hapus profil ini", 17, WARN, false);
+            dt.setPadding(dp(24), 0, 0, 0);
+            del.addView(dt);
+            del.setOnClickListener(v -> deleteProfile(p));
+            content.addView(del);
+        }
+    }
+
+    private void writeSettingsWarning(LinearLayout parent) {
+        if (Settings.System.canWrite(this)) return;
+        TextView w = text("Perlu izin “Ubah pengaturan sistem” agar bagian ini bisa diterapkan — ketuk di sini",
+                14, 0xFFFFFFFF, false);
+        w.setBackgroundColor(YELLOW);
+        w.setPadding(dp(12), dp(10), dp(12), dp(10));
+        w.setOnClickListener(v -> open(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                Uri.parse("package:" + getPackageName()))));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
+        lp.topMargin = dp(12);
+        parent.addView(w, lp);
+    }
+
+    private View toneRow(final String label, String value, final int type, final int req) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(10), 0, dp(10));
+        row.setBackgroundResource(android.R.drawable.list_selector_background);
+        row.addView(text(label, 16, TXT, false));
+        row.addView(text(toneTitle(value), 14, SUB, false));
+        row.setOnClickListener(v -> {
+            String[] items = {"Tidak diubah", "Pilih nada…"};
+            new AlertDialog.Builder(this).setTitle(label).setItems(items, (d, w) -> {
+                if (w == 0) {
+                    if (req == REQ_RINGTONE) editing.ringtone = "";
+                    else editing.notifTone = "";
+                    render(false);
+                } else {
+                    Intent i = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, type);
+                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true);
+                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false);
+                    i.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, label);
+                    String cur = req == REQ_RINGTONE ? editing.ringtone : editing.notifTone;
+                    if (cur != null && !cur.isEmpty() && !"silent".equals(cur))
+                        i.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(cur));
+                    try {
+                        startActivityForResult(i, req);
+                    } catch (Exception ex) {
+                        toast("Pemilih nada tidak tersedia");
+                    }
+                }
+            }).show();
+        });
+        return row;
+    }
+
+    private String toneTitle(String v) {
+        if (v == null || v.isEmpty()) return "Tidak diubah";
+        if ("silent".equals(v)) return "Tanpa suara";
+        try {
+            Ringtone r = RingtoneManager.getRingtone(this, Uri.parse(v));
+            if (r != null) return r.getTitle(this);
+        } catch (Exception ignored) {
+        }
+        return "Nada pilihan";
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (editing == null || res != RESULT_OK || data == null) return;
+        if (req != REQ_RINGTONE && req != REQ_NOTIF_TONE) return;
+        Uri u = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+        String v = u == null ? "silent" : u.toString();
+        if (req == REQ_RINGTONE) editing.ringtone = v;
+        else editing.notifTone = v;
+        render(false);
+    }
+
+    interface IntCb {
+        void on(int v);
+    }
+
+    private AdapterView.OnItemSelectedListener onSelect(final IntCb cb) {
+        return new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                cb.on(position);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        };
+    }
+
+    private void deleteProfile(final Profile p) {
+        if (s.profiles().size() <= 1) {
+            toast("Minimal harus ada satu profil");
+            return;
+        }
+        int used = 0;
+        for (Entry e : s.entries()) if (e.profileId == p.id) used++;
+        String msg = used > 0
+                ? "Profil ini dipakai di " + used + " jadwal. Jadwal tersebut juga akan dihapus."
+                : "Hapus profil ini?";
+        new AlertDialog.Builder(this).setTitle("Hapus " + p.name).setMessage(msg)
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("Hapus", (d, w) -> {
+                    List<Profile> l = s.profiles();
+                    for (int i = l.size() - 1; i >= 0; i--) if (l.get(i).id == p.id) l.remove(i);
+                    s.saveProfiles(l);
+                    List<Entry> el = s.entries();
+                    for (int i = el.size() - 1; i >= 0; i--) if (el.get(i).profileId == p.id) el.remove(i);
+                    s.saveEntries(el);
+                    if (s.activeId() == p.id) s.setActive(l.get(0).id);
+                    Engine.refresh(this);
+                    editing = null;
+                    go(PAGE_PROFILES);
+                }).show();
+    }
+
+    // ================= halaman pengaturan =================
     private int missingPermissions() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
@@ -351,6 +950,10 @@ public class MainActivity extends Activity {
                 "Supaya profil berganti tepat di menit yang dijadwalkan.",
                 v -> open(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                         Uri.parse("package:" + getPackageName()))));
+        permItem(c, Settings.System.canWrite(this), "Ubah pengaturan sistem (opsional)",
+                "Hanya untuk fitur Getaran dan Nada dering di profil.",
+                v -> open(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                        Uri.parse("package:" + getPackageName()))));
         content.addView(c);
 
         LinearLayout set = card();
@@ -364,18 +967,35 @@ public class MainActivity extends Activity {
             Engine.refresh(this);
         });
         set.addView(ns);
-        Button follow = btn("Ikuti jadwal sekarang", v -> {
+        set.addView(btn("Ikuti jadwal sekarang", v -> {
             Engine.followSchedule(this);
             toast("Profil disesuaikan dengan jadwal");
-        });
-        set.addView(follow);
+        }));
         TextView tip = text("Tips: tambahkan tombol “Profil Suara” di panel Quick Settings "
                 + "(tarik panel ke bawah → ikon pensil/+), dan widget “Profil Suara” di layar utama "
-                + "(tekan lama layar → Widget). Urutan 3 profil teratas dipakai di notifikasi, 4 teratas di widget.",
-                13, SUB, false);
+                + "(tekan lama layar → Widget). 3 profil teratas dipakai di notifikasi, 4 teratas di widget. "
+                + "Urutan profil bisa diubah lewat tombol di bawah.", 13, SUB, false);
         tip.setPadding(0, dp(10), 0, 0);
         set.addView(tip);
+        set.addView(btn("Atur urutan profil", v -> reorderDialog()));
         content.addView(set);
+    }
+
+    private void reorderDialog() {
+        final List<Profile> l = s.profiles();
+        String[] names = new String[l.size()];
+        for (int i = 0; i < l.size(); i++) names[i] = (i + 1) + ". " + l.get(i).name;
+        new AlertDialog.Builder(this).setTitle("Ketuk profil untuk dipindah ke atas")
+                .setItems(names, (d, w) -> {
+                    if (w > 0) {
+                        Collections.swap(l, w, w - 1);
+                        s.saveProfiles(l);
+                        Engine.refresh(this);
+                    }
+                    reorderDialog();
+                })
+                .setPositiveButton("Selesai", null)
+                .show();
     }
 
     private void permItem(LinearLayout c, boolean ok, String title, String desc, View.OnClickListener l) {
@@ -404,417 +1024,7 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
         Engine.refresh(this);
-        render();
-    }
-
-    // ================= profil: menu, hapus, edit =================
-    private void profileMenu(final Profile p) {
-        String[] items = {"Edit", "Pindah ke atas", "Hapus"};
-        new AlertDialog.Builder(this).setTitle(p.name).setItems(items, (d, w) -> {
-            if (w == 0) editProfile(p);
-            else if (w == 1) moveUp(p);
-            else deleteProfile(p);
-        }).show();
-    }
-
-    private void moveUp(Profile p) {
-        List<Profile> l = s.profiles();
-        for (int i = 1; i < l.size(); i++) {
-            if (l.get(i).id == p.id) {
-                Collections.swap(l, i, i - 1);
-                break;
-            }
-        }
-        s.saveProfiles(l);
-        Engine.refresh(this);
-        render();
-    }
-
-    private void deleteProfile(final Profile p) {
-        if (s.profiles().size() <= 1) {
-            toast("Minimal harus ada satu profil");
-            return;
-        }
-        int used = 0;
-        for (Entry e : s.entries()) if (e.profileId == p.id) used++;
-        String msg = used > 0
-                ? "Profil ini dipakai di " + used + " jadwal. Jadwal tersebut juga akan dihapus."
-                : "Hapus profil ini?";
-        new AlertDialog.Builder(this).setTitle("Hapus " + p.name).setMessage(msg)
-                .setNegativeButton("Batal", null)
-                .setPositiveButton("Hapus", (d, w) -> {
-                    List<Profile> l = s.profiles();
-                    for (int i = l.size() - 1; i >= 0; i--) if (l.get(i).id == p.id) l.remove(i);
-                    s.saveProfiles(l);
-                    List<Entry> el = s.entries();
-                    for (int i = el.size() - 1; i >= 0; i--) if (el.get(i).profileId == p.id) el.remove(i);
-                    s.saveEntries(el);
-                    if (s.activeId() == p.id) s.setActive(l.get(0).id);
-                    Engine.refresh(this);
-                    render();
-                }).show();
-    }
-
-    private void editProfile(final Profile src) {
-        final boolean isNew = src == null;
-        final Profile p = isNew ? Profile.make(0, "", 0, Profile.NORMAL, 70, 70, 50, 80, 50) : src;
-
-        LinearLayout v = new LinearLayout(this);
-        v.setOrientation(LinearLayout.VERTICAL);
-        v.setPadding(dp(20), dp(8), dp(20), dp(8));
-
-        final EditText name = new EditText(this);
-        name.setHint("Nama profil (mis. Kerja)");
-        name.setText(p.name);
-        name.setSingleLine();
-        v.addView(name);
-
-        // ikon
-        v.addView(label("Ikon"));
-        final int[] iconSel = {p.icon};
-        final ImageView[] icons = new ImageView[Profile.ICONS.length];
-        final Runnable paintIcons = () -> {
-            for (int i = 0; i < icons.length; i++) {
-                GradientDrawable g = new GradientDrawable();
-                g.setShape(GradientDrawable.OVAL);
-                g.setColor(i == iconSel[0] ? ACC : CHIP_OFF);
-                icons[i].setBackground(g);
-            }
-        };
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        LinearLayout ir = new LinearLayout(this);
-        ir.setOrientation(LinearLayout.HORIZONTAL);
-        for (int i = 0; i < icons.length; i++) {
-            final int idx = i;
-            ImageView iv = icon(Profile.ICONS[i], 0xFFFFFFFF);
-            iv.setPadding(dp(9), dp(9), dp(9), dp(9));
-            iv.setOnClickListener(x -> {
-                iconSel[0] = idx;
-                paintIcons.run();
-            });
-            icons[i] = iv;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(44));
-            lp.setMargins(0, 0, dp(8), 0);
-            ir.addView(iv, lp);
-        }
-        paintIcons.run();
-        hs.addView(ir);
-        v.addView(hs);
-
-        // mode dering
-        v.addView(label("Mode dering"));
-        final RadioGroup rg = new RadioGroup(this);
-        rg.setOrientation(RadioGroup.HORIZONTAL);
-        String[] modes = {"Normal", "Getar", "Senyap"};
-        for (int i = 0; i < 3; i++) {
-            RadioButton rb = new RadioButton(this);
-            rb.setId(1000 + i);
-            rb.setText(modes[i]);
-            rg.addView(rb);
-        }
-        rg.check(1000 + p.mode);
-        v.addView(rg);
-
-        // jangan ganggu
-        v.addView(label("Jangan Ganggu (berlaku untuk seluruh HP)"));
-        final Spinner dndSp = spinner(new String[]{"Mati", "Prioritas (pilih siapa yang boleh)",
-                "Hanya alarm", "Senyap total"}, p.dnd);
-        v.addView(dndSp);
-        final LinearLayout prioBox = new LinearLayout(this);
-        prioBox.setOrientation(LinearLayout.VERTICAL);
-        prioBox.addView(label("Panggilan yang boleh berdering"));
-        final Spinner callSp = spinner(new String[]{"Semua orang", "Kontak saja",
-                "Kontak favorit saja", "Tidak ada"}, p.callers);
-        prioBox.addView(callSp);
-        final CheckBox rep = new CheckBox(this);
-        rep.setText("Izinkan penelepon berulang (menelepon 2x dalam 15 menit)");
-        rep.setChecked(p.repeat);
-        prioBox.addView(rep);
-        v.addView(prioBox);
-
-        // volume
-        final TextView note = new TextView(this);
-        note.setText("Dering, notifikasi & sistem hanya dipakai saat mode Normal.");
-        note.setTextSize(12);
-        v.addView(label("Volume (centang = ikut diatur)"));
-        v.addView(note);
-        String[] labels = {"Nada dering", "Notifikasi", "Media (musik/video)", "Alarm", "Sistem"};
-        final int[] vals = p.values();
-        final CheckBox[] cbs = new CheckBox[5];
-        final SeekBar[] bars = new SeekBar[5];
-        final TextView[] tvs = new TextView[5];
-        for (int i = 0; i < 5; i++) {
-            final int idx = i;
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            CheckBox cb = new CheckBox(this);
-            cb.setText(labels[i]);
-            cb.setChecked(vals[i] >= 0);
-            row.addView(cb, new LinearLayout.LayoutParams(0, WRAP, 1f));
-            TextView tv = new TextView(this);
-            tv.setText(vals[i] >= 0 ? vals[i] + "%" : "tidak diubah");
-            row.addView(tv);
-            SeekBar sb = new SeekBar(this);
-            sb.setMax(100);
-            sb.setProgress(vals[i] >= 0 ? vals[i] : 50);
-            sb.setEnabled(vals[i] >= 0);
-            sb.setPadding(dp(16), dp(4), dp(16), dp(12));
-            cbs[i] = cb;
-            bars[i] = sb;
-            tvs[i] = tv;
-            sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override
-                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                    tvs[idx].setText(progress + "%");
-                }
-
-                @Override
-                public void onStartTrackingTouch(SeekBar seekBar) {
-                }
-
-                @Override
-                public void onStopTrackingTouch(SeekBar seekBar) {
-                }
-            });
-            cb.setOnCheckedChangeListener((bt, checked) -> {
-                bars[idx].setEnabled(checked && bt.isEnabled());
-                tvs[idx].setText(checked ? bars[idx].getProgress() + "%" : "tidak diubah");
-            });
-            v.addView(row);
-            v.addView(sb);
-        }
-
-        final Runnable upd = () -> {
-            boolean normal = rg.getCheckedRadioButtonId() == 1000;
-            int[] ringStreams = {0, 1, 4};
-            for (int idx : ringStreams) {
-                cbs[idx].setEnabled(normal);
-                bars[idx].setEnabled(normal && cbs[idx].isChecked());
-            }
-            note.setVisibility(normal ? View.GONE : View.VISIBLE);
-            prioBox.setVisibility(dndSp.getSelectedItemPosition() == Profile.DND_PRIORITY ? View.VISIBLE : View.GONE);
-        };
-        rg.setOnCheckedChangeListener((g, id) -> upd.run());
-        dndSp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                upd.run();
-            }
-
-            @Override
-            public void onNothingSelected(android.widget.AdapterView<?> parent) {
-            }
-        });
-        upd.run();
-
-        ScrollView sv = new ScrollView(this);
-        sv.addView(v);
-
-        new AlertDialog.Builder(this)
-                .setTitle(isNew ? "Profil baru" : "Edit profil")
-                .setView(sv)
-                .setNegativeButton("Batal", null)
-                .setPositiveButton("Simpan", (d, w) -> {
-                    String n = name.getText().toString().trim();
-                    p.name = n.isEmpty() ? "Profil" : n;
-                    p.icon = iconSel[0];
-                    int m = rg.getCheckedRadioButtonId() - 1000;
-                    p.mode = (m < 0 || m > 2) ? Profile.NORMAL : m;
-                    p.dnd = Math.max(0, dndSp.getSelectedItemPosition());
-                    p.callers = Math.max(0, callSp.getSelectedItemPosition());
-                    p.repeat = rep.isChecked();
-                    int[] nv = new int[5];
-                    for (int i = 0; i < 5; i++) nv[i] = cbs[i].isChecked() ? bars[i].getProgress() : -1;
-                    p.setValues(nv);
-                    List<Profile> l = s.profiles();
-                    if (isNew) {
-                        p.id = s.newId();
-                        l.add(p);
-                    } else {
-                        for (int i = 0; i < l.size(); i++) if (l.get(i).id == p.id) l.set(i, p);
-                    }
-                    s.saveProfiles(l);
-                    if (p.id == s.activeId()) Engine.applyAudio(this, p);
-                    Engine.refresh(this);
-                    render();
-                }).show();
-    }
-
-    // ================= sementara =================
-    private void durationDialog(final Profile p) {
-        final String[] labels = {"15 menit", "30 menit", "45 menit", "1 jam", "1,5 jam", "2 jam", "3 jam",
-                "Sampai jam…", "Lainnya (menit)…"};
-        final int[] mins = {15, 30, 45, 60, 90, 120, 180};
-        new AlertDialog.Builder(this).setTitle(p.name + " selama…").setItems(labels, (d, w) -> {
-            if (w < mins.length) {
-                activate(p, mins[w]);
-            } else if (w == mins.length) {
-                java.util.Calendar k = java.util.Calendar.getInstance();
-                k.add(java.util.Calendar.HOUR_OF_DAY, 1);
-                new TimePickerDialog(this, (tp, h, m) -> {
-                    java.util.Calendar t = java.util.Calendar.getInstance();
-                    t.set(java.util.Calendar.HOUR_OF_DAY, h);
-                    t.set(java.util.Calendar.MINUTE, m);
-                    t.set(java.util.Calendar.SECOND, 0);
-                    long diff = t.getTimeInMillis() - System.currentTimeMillis();
-                    if (diff <= 0) diff += 24L * 3600000L;
-                    int minutes = (int) Math.max(1, Math.round(diff / 60000.0));
-                    activate(p, minutes);
-                }, k.get(java.util.Calendar.HOUR_OF_DAY), 0, true).show();
-            } else {
-                final EditText et = new EditText(this);
-                et.setInputType(InputType.TYPE_CLASS_NUMBER);
-                et.setHint("Menit");
-                LinearLayout box = new LinearLayout(this);
-                box.setPadding(dp(20), dp(8), dp(20), 0);
-                box.addView(et, new LinearLayout.LayoutParams(MATCH, WRAP));
-                new AlertDialog.Builder(this).setTitle("Berapa menit?").setView(box)
-                        .setNegativeButton("Batal", null)
-                        .setPositiveButton("OK", (d2, w2) -> {
-                            int m = 0;
-                            try {
-                                m = Integer.parseInt(et.getText().toString().trim());
-                            } catch (Exception ignored) {
-                            }
-                            if (m > 0 && m <= 24 * 60) activate(p, m);
-                            else toast("Isi 1 sampai 1440 menit");
-                        }).show();
-            }
-        }).show();
-    }
-
-    // ================= jadwal: edit =================
-    private void editEntry(final Entry src) {
-        final List<Profile> ps = s.profiles();
-        if (ps.isEmpty()) {
-            toast("Buat profil dulu");
-            return;
-        }
-        final boolean isNew = src == null;
-        final Entry e = isNew ? Entry.make(0, 7, 0, Entry.WEEKDAYS, ps.get(0).id) : src;
-        final int[] hm = {e.hour, e.minute};
-        final int[] days = {e.days};
-
-        LinearLayout v = new LinearLayout(this);
-        v.setOrientation(LinearLayout.VERTICAL);
-        v.setPadding(dp(20), dp(8), dp(20), dp(8));
-
-        v.addView(label("Jam"));
-        final Button tb = new Button(this);
-        tb.setTextSize(28);
-        tb.setText(Engine.hm(hm[0], hm[1]));
-        tb.setOnClickListener(x -> new TimePickerDialog(this, (tp, h, m) -> {
-            hm[0] = h;
-            hm[1] = m;
-            tb.setText(Engine.hm(h, m));
-        }, hm[0], hm[1], true).show());
-        v.addView(tb);
-
-        v.addView(label("Hari"));
-        final TextView[] chips = new TextView[7];
-        final Runnable paint = () -> {
-            for (int i = 0; i < 7; i++) {
-                boolean on = (days[0] & (1 << i)) != 0;
-                GradientDrawable g = new GradientDrawable();
-                g.setCornerRadius(dp(10));
-                g.setColor(on ? ACC : CHIP_OFF);
-                chips[i].setBackground(g);
-                chips[i].setTextColor(on ? 0xFFFFFFFF : 0xFFDDDDDD);
-            }
-        };
-        LinearLayout dr = new LinearLayout(this);
-        dr.setOrientation(LinearLayout.HORIZONTAL);
-        for (int i = 0; i < 7; i++) {
-            final int bit = i;
-            TextView c = new TextView(this);
-            c.setText(Engine.DAYS[i]);
-            c.setGravity(Gravity.CENTER);
-            c.setTextSize(13);
-            c.setPadding(0, dp(10), 0, dp(10));
-            c.setOnClickListener(x -> {
-                days[0] ^= (1 << bit);
-                paint.run();
-            });
-            chips[i] = c;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, WRAP, 1f);
-            lp.setMargins(dp(2), 0, dp(2), 0);
-            dr.addView(c, lp);
-        }
-        v.addView(dr);
-        paint.run();
-
-        LinearLayout quick = new LinearLayout(this);
-        quick.setOrientation(LinearLayout.HORIZONTAL);
-        String[] ql = {"Sen–Jum", "Sab–Min", "Tiap hari"};
-        final int[] qv = {Entry.WEEKDAYS, Entry.WEEKEND, Entry.EVERYDAY};
-        for (int i = 0; i < 3; i++) {
-            final int qi = i;
-            Button b = new Button(this);
-            b.setText(ql[i]);
-            b.setAllCaps(false);
-            b.setTextSize(12);
-            b.setOnClickListener(x -> {
-                days[0] = qv[qi];
-                paint.run();
-            });
-            quick.addView(b, new LinearLayout.LayoutParams(0, WRAP, 1f));
-        }
-        v.addView(quick);
-
-        v.addView(label("Profil"));
-        String[] names = new String[ps.size()];
-        int sel = 0;
-        for (int i = 0; i < ps.size(); i++) {
-            names[i] = ps.get(i).name;
-            if (ps.get(i).id == e.profileId) sel = i;
-        }
-        final Spinner sp = spinner(names, sel);
-        v.addView(sp);
-
-        ScrollView sv = new ScrollView(this);
-        sv.addView(v);
-
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle(isNew ? "Jadwal baru" : "Edit jadwal")
-                .setView(sv)
-                .setNegativeButton("Batal", null)
-                .setPositiveButton("Simpan", null);
-        if (!isNew) {
-            b.setNeutralButton("Hapus", (d, w) -> {
-                List<Entry> l = s.entries();
-                for (int i = l.size() - 1; i >= 0; i--) if (l.get(i).id == e.id) l.remove(i);
-                s.saveEntries(l);
-                Engine.refresh(this);
-                render();
-            });
-        }
-        final AlertDialog dlg = b.create();
-        dlg.setOnShowListener(di -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(x -> {
-            if (days[0] == 0) {
-                toast("Pilih minimal satu hari");
-                return;
-            }
-            e.hour = hm[0];
-            e.minute = hm[1];
-            e.days = days[0];
-            int pos = sp.getSelectedItemPosition();
-            e.profileId = ps.get(pos < 0 ? 0 : pos).id;
-            List<Entry> l = s.entries();
-            if (isNew) {
-                e.id = s.newId();
-                e.enabled = true;
-                l.add(e);
-            } else {
-                for (int i = 0; i < l.size(); i++) if (l.get(i).id == e.id) l.set(i, e);
-            }
-            s.saveEntries(l);
-            Engine.markSeen(this);
-            Engine.refresh(this);
-            render();
-            dlg.dismiss();
-        }));
-        dlg.show();
+        render(false);
     }
 
     // ================= helper tampilan =================
@@ -852,6 +1062,7 @@ public class MainActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText(t);
         tv.setTextSize(13);
+        tv.setTextColor(SUB);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setPadding(0, dp(14), 0, dp(4));
         return tv;

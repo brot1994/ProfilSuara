@@ -24,6 +24,10 @@ public class Profile {
     public int dnd = DND_OFF;
     public int callers = CALL_ANY;
     public boolean repeat = true;
+    /** -1 = tidak diubah, 0 = mati, 1 = nyala */
+    public int vibRing = -1, haptic = -1;
+    /** "" = tidak diubah, "silent" = tanpa suara, selain itu URI nada */
+    public String ringtone = "", notifTone = "";
 
     static Profile make(long id, String name, int icon, int mode, int ring, int notif, int media, int alarm, int system) {
         Profile p = new Profile();
@@ -63,6 +67,10 @@ public class Profile {
         o.put("dnd", dnd);
         o.put("callers", callers);
         o.put("repeat", repeat);
+        o.put("vibRing", vibRing);
+        o.put("haptic", haptic);
+        o.put("ringtone", ringtone);
+        o.put("notifTone", notifTone);
         return o;
     }
 
@@ -80,6 +88,10 @@ public class Profile {
         p.dnd = o.optInt("dnd", DND_OFF);
         p.callers = o.optInt("callers", CALL_ANY);
         p.repeat = o.optBoolean("repeat", true);
+        p.vibRing = o.optInt("vibRing", -1);
+        p.haptic = o.optInt("haptic", -1);
+        p.ringtone = o.optString("ringtone", "");
+        p.notifTone = o.optString("notifTone", "");
         return p;
     }
 
@@ -93,6 +105,18 @@ public class Profile {
         media = v[2];
         alarm = v[3];
         system = v[4];
+    }
+
+    Profile copy() {
+        try {
+            return fromJson(toJson());
+        } catch (JSONException e) {
+            return this;
+        }
+    }
+
+    boolean needsWriteSettings() {
+        return vibRing >= 0 || haptic >= 0 || !ringtone.isEmpty() || !notifTone.isEmpty();
     }
 
     boolean needsPolicy() {

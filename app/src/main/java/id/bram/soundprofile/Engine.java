@@ -10,6 +10,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Icon;
 import android.media.AudioManager;
+import android.media.RingtoneManager;
+import android.net.Uri;
+import android.provider.Settings;
 import android.os.Build;
 import android.service.quicksettings.TileService;
 
@@ -103,8 +106,9 @@ public class Engine {
             }
         }
 
-        // 2) Volume & mode dering
+        // 2) Volume & mode dering, getaran, nada
         applyRingerAndVolumes(am, p);
+        applySystemSettings(c, p);
 
         // 3) Mode Jangan Ganggu global (terakhir, agar tidak tertimpa mode dering)
         if (policy && p.dnd != Profile.DND_OFF) {
@@ -132,6 +136,34 @@ public class Engine {
                 nm.setInterruptionFilter(filter);
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    /** Getaran & nada dering — butuh izin "Ubah pengaturan sistem". */
+    static void applySystemSettings(Context c, Profile p) {
+        if (!p.needsWriteSettings() || !Settings.System.canWrite(c)) return;
+        android.content.ContentResolver cr = c.getContentResolver();
+        if (p.vibRing >= 0) {
+            try {
+                Settings.System.putInt(cr, Settings.System.VIBRATE_WHEN_RINGING, p.vibRing);
+            } catch (Exception ignored) {
+            }
+        }
+        if (p.haptic >= 0) {
+            try {
+                Settings.System.putInt(cr, Settings.System.HAPTIC_FEEDBACK_ENABLED, p.haptic);
+            } catch (Exception ignored) {
+            }
+        }
+        setTone(c, RingtoneManager.TYPE_RINGTONE, p.ringtone);
+        setTone(c, RingtoneManager.TYPE_NOTIFICATION, p.notifTone);
+    }
+
+    private static void setTone(Context c, int type, String v) {
+        if (v == null || v.isEmpty()) return;
+        try {
+            RingtoneManager.setActualDefaultRingtoneUri(c, type, "silent".equals(v) ? null : Uri.parse(v));
+        } catch (Exception ignored) {
         }
     }
 
@@ -196,7 +228,7 @@ public class Engine {
     static void followSchedule(Context c) {
         Store s = new Store(c);
         s.clearTemp();
-        Occ o = mostRecent(s.entries(), System.currentTimeMillis());
+        Occ o = mostRecent(s.schedEntries(), System.currentTimeMillis());
         if (o != null) {
             Profile p = s.profile(o.entry.profileId);
             if (p != null) {
@@ -211,7 +243,7 @@ public class Engine {
     /** Setelah jadwal diedit: anggap jadwal yang sudah lewat sudah "dilihat". */
     static void markSeen(Context c) {
         Store s = new Store(c);
-        Occ o = mostRecent(s.entries(), System.currentTimeMillis());
+        Occ o = mostRecent(s.schedEntries(), System.currentTimeMillis());
         if (o != null && o.time > s.lastSched()) s.setLastSched(o.time);
     }
 
@@ -219,7 +251,7 @@ public class Engine {
     static void tick(Context c) {
         Store s = new Store(c);
         long now = System.currentTimeMillis();
-        Occ o = mostRecent(s.entries(), now);
+        Occ o = mostRecent(s.schedEntries(), now);
         long tempUntil = s.tempUntil();
 
         if (tempUntil > 0) {
@@ -265,7 +297,7 @@ public class Engine {
     static void scheduleNext(Context c, Store s) {
         long now = System.currentTimeMillis();
         long t = Long.MAX_VALUE;
-        Occ n = next(s.entries(), now);
+        Occ n = next(s.schedEntries(), now);
         if (n != null) t = n.time;
         long tu = s.tempUntil();
         if (tu > 0) t = Math.min(t, Math.max(tu, now + 1000));
@@ -329,7 +361,7 @@ public class Engine {
         long now = System.currentTimeMillis();
         long tu = s.tempUntil();
         if (tu > now) return "Sementara sampai " + fmtTime(tu) + ", lalu kembali otomatis";
-        Occ n = next(s.entries(), now);
+        Occ n = next(s.schedEntries(), now);
         if (n == null) return "Tidak ada jadwal aktif";
         Profile p = s.profile(n.entry.profileId);
         return "Berikutnya " + whenLabel(n.time, now) + " → " + (p == null ? "?" : p.name);
