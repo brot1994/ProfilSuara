@@ -188,7 +188,14 @@ public class FloatService extends Service {
         closePanel();
         closeMenu();
         if (bubbleAdded) {
-            h.postDelayed(this::snapToEdge, 300);
+            h.postDelayed(() -> {
+                if (sp.getBoolean("snap", false)) {
+                    snapToEdge();
+                } else if (bubbleAdded) {
+                    clampBubble();
+                    try { wm.updateViewLayout(bubble, bp); } catch (Exception ignored) { }
+                }
+            }, 300);
         }
     }
 
@@ -248,7 +255,8 @@ public class FloatService extends Service {
 
     // ---------- tombol melayang ----------
     private void createBubble() {
-        size = dp(sp.getInt("size", 52));
+        int iconPx = dp(sp.getInt("size", 52));
+        size = Math.max(iconPx, dp(44));
         bubble = new ImageView(this);
         boolean withBg = sp.getBoolean("bg", false);
         if (withBg) {
@@ -262,7 +270,7 @@ public class FloatService extends Service {
         }
         bubble.setImageResource(sp.getBoolean("dark", false) ? R.drawable.ic_volume_dark : R.drawable.ic_volume_shadow);
         bubble.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        int pad = Math.round(size * (withBg ? 0.24f : 0.04f));
+        int pad = (size - iconPx) / 2 + Math.round(iconPx * (withBg ? 0.24f : 0.04f));
         bubble.setPadding(pad, pad, pad, pad);
         bubble.setAlpha(idleAlpha());
 
@@ -356,12 +364,21 @@ public class FloatService extends Service {
                     return true;
                 case MotionEvent.ACTION_MOVE: {
                     float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
-                    if (!moved && Math.hypot(dx, dy) > slop) {
+                    if (!moved && Math.hypot(dx, dy) > slop * (longFired ? 2 : 1)) {
                         moved = true;
                         h.removeCallbacks(longPress);
-                        if (!longFired) closePanel();
+                        closePanel();
+                        if (longFired) {
+                            closeMenu();
+                            longFired = false;
+                        }
+                        if (sp.getBoolean("locked", false)) {
+                            Toast.makeText(FloatService.this,
+                                    "Posisi tombol dikunci (tekan lama → Buka kunci posisi)",
+                                    Toast.LENGTH_SHORT).show();
+                        }
                     }
-                    if (moved && !longFired && !sp.getBoolean("locked", false)) {
+                    if (moved && !sp.getBoolean("locked", false)) {
                         bp.x = startX + (int) dx;
                         bp.y = startY + (int) dy;
                         clampBubble();
@@ -373,7 +390,10 @@ public class FloatService extends Service {
                     h.removeCallbacks(longPress);
                     if (!longFired) {
                         if (moved) {
-                            if (!sp.getBoolean("locked", false)) snapToEdge();
+                            if (!sp.getBoolean("locked", false)) {
+                                if (sp.getBoolean("snap", false)) snapToEdge();
+                                else sp.edit().putInt("x", bp.x).putInt("y", bp.y).apply();
+                            }
                         } else {
                             togglePanel();
                         }
@@ -424,14 +444,7 @@ public class FloatService extends Service {
             try { wm.removeView(bubble); } catch (Exception ignored) { }
             bubbleAdded = false;
         }
-        int oldX = bp != null ? bp.x : -1;
-        boolean right = bp != null && onRightSide();
         createBubble();
-        if (oldX >= 0) {
-            bp.x = right ? screen().x - size : 0;
-            clampBubble();
-            wm.updateViewLayout(bubble, bp);
-        }
         if (wasHidden) {
             hidden = false;
             setHidden(true);

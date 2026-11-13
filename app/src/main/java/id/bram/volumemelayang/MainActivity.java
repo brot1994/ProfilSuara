@@ -142,6 +142,14 @@ public class MainActivity extends Activity {
         });
         look.addView(dark);
 
+        CheckBox snap = new CheckBox(this);
+        snap.setText("Menempel otomatis ke tepi layar");
+        snap.setTextColor(Color.WHITE);
+        snap.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        snap.setChecked(sp.getBoolean("snap", false));
+        snap.setOnCheckedChangeListener((c, on) -> sp.edit().putBoolean("snap", on).apply());
+        look.addView(snap);
+
         CheckBox lock = new CheckBox(this);
         lock.setText("Kunci posisi tombol");
         lock.setTextColor(Color.WHITE);
@@ -202,7 +210,7 @@ public class MainActivity extends Activity {
                         + "• Tombol ⋯ di panel → tampilkan semua slider (Media, Dering, Notifikasi, Alarm, Sistem).\n"
                         + "• Ikon lonceng di panel → ganti mode Dering / Getar / Senyap.\n"
                         + "• Tekan lama tombol → menu: mode dering, kunci posisi, sembunyikan, sembunyikan 10 detik.\n"
-                        + "• Geser tombol → otomatis menempel ke tepi layar.\n"
+                        + "• Geser tombol untuk memindahkan posisinya (bisa juga setelah ditahan).\n"
                         + "• Tombol tersembunyi dimunculkan lagi dari notifikasi, atau dari tile \"Volume Melayang\" di Quick Settings.",
                 14, 0xCCFFFFFF));
 
