@@ -250,14 +250,19 @@ public class FloatService extends Service {
     private void createBubble() {
         size = dp(sp.getInt("size", 52));
         bubble = new ImageView(this);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(0xE61C1F26);
-        bg.setStroke(dp(1.5f), 0x55FFFFFF);
-        bubble.setBackground(bg);
-        bubble.setImageResource(R.drawable.ic_volume);
+        boolean withBg = sp.getBoolean("bg", false);
+        if (withBg) {
+            GradientDrawable bg = new GradientDrawable();
+            bg.setShape(GradientDrawable.OVAL);
+            bg.setColor(0xE61C1F26);
+            bg.setStroke(dp(1.5f), 0x55FFFFFF);
+            bubble.setBackground(bg);
+        } else {
+            bubble.setBackground(null);
+        }
+        bubble.setImageResource(sp.getBoolean("dark", false) ? R.drawable.ic_volume_dark : R.drawable.ic_volume_shadow);
         bubble.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        int pad = Math.round(size * 0.24f);
+        int pad = Math.round(size * (withBg ? 0.24f : 0.04f));
         bubble.setPadding(pad, pad, pad, pad);
         bubble.setAlpha(idleAlpha());
 
@@ -277,7 +282,8 @@ public class FloatService extends Service {
     }
 
     private float idleAlpha() {
-        return sp.getInt("alpha", 70) / 100f;
+        int t = Math.max(0, Math.min(90, sp.getInt("transp", 30)));
+        return 1f - t / 100f;
     }
 
     private void clampBubble() {
@@ -294,7 +300,7 @@ public class FloatService extends Service {
         h.removeCallbacks(dimRunnable);
         if (bubble != null) {
             bubble.animate().cancel();
-            bubble.setAlpha(1f);
+            bubble.setAlpha(Math.min(1f, idleAlpha() + 0.15f));
         }
     }
 
@@ -399,8 +405,7 @@ public class FloatService extends Service {
                 wm.addView(bubble, bp);
                 bubbleAdded = true;
             } catch (Exception ignored) { }
-            bubble.setAlpha(1f);
-            scheduleDim();
+            bubble.setAlpha(idleAlpha());
         } else if (bubble == null) {
             createBubble();
         }
@@ -590,9 +595,13 @@ public class FloatService extends Service {
         int gap = dp(8);
         int estW = expanded ? dp(28 + 62 * 5 + 10) : dp(28 + 62 + 10);
         int estH = dp(10 + 40 + 6 + 210 + 6 + 18 + 14);
+        boolean rightEdge = sp.getInt("panel_side", 0) == 0;
         if (onRightSide()) {
             pp.gravity = Gravity.TOP | Gravity.RIGHT;
             pp.x = Math.max(0, Math.min(s.x - bp.x + gap, s.x - estW));
+        } else if (rightEdge) {
+            pp.gravity = Gravity.TOP | Gravity.RIGHT;
+            pp.x = dp(10);
         } else {
             pp.gravity = Gravity.TOP | Gravity.LEFT;
             pp.x = Math.max(0, Math.min(bp.x + size + gap, s.x - estW));

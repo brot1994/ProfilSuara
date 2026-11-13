@@ -91,14 +91,14 @@ public class MainActivity extends Activity {
         LinearLayout look = card(root, "Tombol melayang");
         final TextView sizeLbl = text("", 14, Color.WHITE);
         look.addView(sizeLbl);
-        SeekBar sizeBar = seek(80 - 36, sp.getInt("size", 52) - 36);
+        SeekBar sizeBar = seek(80 - 20, sp.getInt("size", 52) - 20);
         sizeLbl.setText("Ukuran: " + sp.getInt("size", 52) + " dp");
         sizeBar.setOnSeekBarChangeListener(new SimpleSeek() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean u) {
-                sizeLbl.setText("Ukuran: " + (p + 36) + " dp");
+                sizeLbl.setText("Ukuran: " + (p + 20) + " dp");
             }
             @Override public void onStopTrackingTouch(SeekBar s) {
-                sp.edit().putInt("size", s.getProgress() + 36).apply();
+                sp.edit().putInt("size", s.getProgress() + 20).apply();
                 refreshService();
             }
         });
@@ -107,18 +107,40 @@ public class MainActivity extends Activity {
         final TextView alphaLbl = text("", 14, Color.WHITE);
         alphaLbl.setPadding(0, dp(10), 0, 0);
         look.addView(alphaLbl);
-        SeekBar alphaBar = seek(100 - 20, sp.getInt("alpha", 70) - 20);
-        alphaLbl.setText("Kepekatan saat diam: " + sp.getInt("alpha", 70) + "%");
+        SeekBar alphaBar = seek(90, sp.getInt("transp", 30));
+        alphaLbl.setText("Transparansi ikon: " + sp.getInt("transp", 30) + "%");
         alphaBar.setOnSeekBarChangeListener(new SimpleSeek() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean u) {
-                alphaLbl.setText("Kepekatan saat diam: " + (p + 20) + "%");
+                alphaLbl.setText("Transparansi ikon: " + p + "%");
             }
             @Override public void onStopTrackingTouch(SeekBar s) {
-                sp.edit().putInt("alpha", s.getProgress() + 20).apply();
+                sp.edit().putInt("transp", s.getProgress()).apply();
                 refreshService();
             }
         });
         look.addView(alphaBar);
+
+        CheckBox bgc = new CheckBox(this);
+        bgc.setText("Pakai lingkaran di belakang ikon");
+        bgc.setTextColor(Color.WHITE);
+        bgc.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        bgc.setChecked(sp.getBoolean("bg", false));
+        bgc.setOnCheckedChangeListener((c, on) -> {
+            sp.edit().putBoolean("bg", on).apply();
+            refreshService();
+        });
+        look.addView(bgc);
+
+        CheckBox dark = new CheckBox(this);
+        dark.setText("Ikon warna gelap (untuk latar terang)");
+        dark.setTextColor(Color.WHITE);
+        dark.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        dark.setChecked(sp.getBoolean("dark", false));
+        dark.setOnCheckedChangeListener((c, on) -> {
+            sp.edit().putBoolean("dark", on).apply();
+            refreshService();
+        });
+        look.addView(dark);
 
         CheckBox lock = new CheckBox(this);
         lock.setText("Kunci posisi tombol");
@@ -147,6 +169,23 @@ public class MainActivity extends Activity {
             refreshService();
         });
         pan.addView(rg);
+
+        TextView sideLbl = text("Posisi panel:", 14, 0xCCFFFFFF);
+        sideLbl.setPadding(0, dp(10), 0, 0);
+        pan.addView(sideLbl);
+        RadioGroup side = new RadioGroup(this);
+        String[] sides = {"Selalu di kanan layar", "Di samping tombol"};
+        for (int i = 0; i < sides.length; i++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(2000 + i);
+            rb.setText(sides[i]);
+            rb.setTextColor(Color.WHITE);
+            rb.setButtonTintList(ColorStateList.valueOf(ACCENT));
+            side.addView(rb);
+            if (i == sp.getInt("panel_side", 0)) rb.setChecked(true);
+        }
+        side.setOnCheckedChangeListener((g, id) -> sp.edit().putInt("panel_side", id - 2000).apply());
+        pan.addView(side);
 
         CheckBox exp = new CheckBox(this);
         exp.setText("Langsung tampilkan semua slider");
