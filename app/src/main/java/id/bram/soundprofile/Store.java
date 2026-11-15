@@ -22,6 +22,12 @@ public class Store {
 
     /** Gereja bawaan (sekali saja, tidak ditambahkan lagi bila sudah dihapus). */
     private void seedPlace() {
+        if (!sp.getBoolean("placeRenamed1", false)) {
+            List<Place> l = places();
+            for (Place x : l) if ("Gereja (default)".equals(x.name)) x.name = "Gereja St. Stanislaus Kostka";
+            savePlaces(l);
+            sp.edit().putBoolean("placeRenamed1", true).commit();
+        }
         if (sp.getBoolean("placeSeeded", false)) return;
         List<Place> l = places();
         boolean exists = false;
@@ -31,7 +37,7 @@ public class Store {
         if (!exists) {
             Place p = new Place();
             p.id = newId();
-            p.name = "Gereja (default)";
+            p.name = "Gereja St. Stanislaus Kostka";
             p.lat = -6.362605316800563;
             p.lon = 106.92794703044946;
             p.radius = 100;
