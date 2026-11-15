@@ -17,6 +17,29 @@ public class Store {
         sp = c.getApplicationContext().getSharedPreferences("data", Context.MODE_PRIVATE);
         if (sp.getInt("schema", 0) < 2) seed();
         splitEntries();
+        seedPlace();
+    }
+
+    /** Gereja bawaan (sekali saja, tidak ditambahkan lagi bila sudah dihapus). */
+    private void seedPlace() {
+        if (sp.getBoolean("placeSeeded", false)) return;
+        List<Place> l = places();
+        boolean exists = false;
+        for (Place x : l) {
+            if (Math.abs(x.lat - (-6.362605316800563)) < 0.0005 && Math.abs(x.lon - 106.92794703044946) < 0.0005) exists = true;
+        }
+        if (!exists) {
+            Place p = new Place();
+            p.id = newId();
+            p.name = "Gereja (default)";
+            p.lat = -6.362605316800563;
+            p.lon = 106.92794703044946;
+            p.radius = 100;
+            p.enabled = true;
+            l.add(0, p);
+            savePlaces(l);
+        }
+        sp.edit().putBoolean("placeSeeded", true).putBoolean("geoOn", true).commit();
     }
 
     /** Pecah jadwal multi-hari menjadi satu baris per hari (tampilan per hari). */

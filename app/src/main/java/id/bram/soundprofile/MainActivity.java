@@ -1903,6 +1903,7 @@ public class MainActivity extends Activity {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) n++;
         if (!pm.isIgnoringBatteryOptimizations(getPackageName())) n++;
         if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms()) n++;
+        if (s.geoOn() && !Geo.ready(this)) n++;
         return n;
     }
 
@@ -1928,6 +1929,9 @@ public class MainActivity extends Activity {
                 "Supaya profil berganti tepat di menit yang dijadwalkan.",
                 v -> open(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                         Uri.parse("package:" + getPackageName()))));
+        if (s.geoOn()) permItem(c, Geo.ready(this), "Lokasi “Izinkan sepanjang waktu”",
+                "Untuk senyap otomatis di gereja walau aplikasi tertutup.",
+                v -> askLocationPermission());
         permItem(c, Settings.System.canWrite(this), "Ubah pengaturan sistem (opsional)",
                 "Hanya untuk fitur Getaran dan Nada dering di profil.",
                 v -> open(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
