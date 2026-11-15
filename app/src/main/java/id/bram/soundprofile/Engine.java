@@ -289,7 +289,7 @@ public class Engine {
                 s.setLastSched(o.time); // jadwal lewat saat mode sementara: ditunda
             }
         } else if (o != null && o.time > s.lastSched()) {
-            Profile p = s.profile(o.entry.profileId);
+            Profile p = s.geoActive() ? null : s.profile(o.entry.profileId); // di gereja: jadwal ditunda
             if (p != null) {
                 applyAudio(c, p);
                 s.setActive(p.id);
@@ -377,6 +377,10 @@ public class Engine {
         long now = System.currentTimeMillis();
         long tu = s.tempUntil();
         if (tu > now) return "Sementara sampai " + fmtTime(tu) + ", lalu kembali otomatis";
+        if (s.geoActive()) {
+            Profile out = s.profile(s.geoOutProfile());
+            return "Di " + s.geoActiveName() + " · menjauh " + s.geoExitM() + " m → " + (out == null ? "?" : out.name);
+        }
         Occ n = next(s.schedEntries(), now);
         if (n == null) return "Tidak ada jadwal aktif";
         Profile p = s.profile(n.entry.profileId);

@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
             PILL_TXT = 0xFF111111, WARN = 0xFFEF5350, CHIP_OFF = 0xFF3A3A3A, DIVIDER = 0xFF2C2C2C,
             YELLOW = 0xFF9A8A17;
     static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT, WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
-    static final int PAGE_PROFILES = 0, PAGE_SCHEDULE = 1, PAGE_SETTINGS = 2, PAGE_EDIT = 3, PAGE_MANAGE = 4;
+    static final int PAGE_PROFILES = 0, PAGE_SCHEDULE = 1, PAGE_SETTINGS = 2, PAGE_EDIT = 3, PAGE_MANAGE = 4, PAGE_PLACES = 5;
     static final String[] DAY_FULL = {"Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"};
     static final int REQ_RINGTONE = 10, REQ_NOTIF_TONE = 11;
 
@@ -112,6 +112,16 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         Engine.ensureChannel(this);
         Engine.tick(this);
+        Geo.registerAll(this);
+        handleShare(getIntent());
+        if (pendingShare != null) {
+            final String sh = pendingShare;
+            pendingShare = null;
+            frame.post(() -> {
+                render(true);
+                addFromLink(sh);
+            });
+        }
     }
 
     @Override
@@ -256,6 +266,7 @@ public class MainActivity extends Activity {
         adv.setPadding(dp(20), dp(18), dp(20), dp(6));
         col.addView(adv);
         col.addView(drawerItem(R.drawable.ic_p8, "Jadwal (Scheduler)", page == PAGE_SCHEDULE, s.schedOn(), v -> navTo(PAGE_SCHEDULE)));
+        col.addView(drawerItem(R.drawable.ic_place, "Lokasi (Gereja)", page == PAGE_PLACES, s.geoOn(), v -> navTo(PAGE_PLACES)));
         col.addView(drawerItem(R.drawable.ic_stat, "Notifikasi status", false, s.showNotif(), v -> {
             s.setShowNotif(!s.showNotif());
             Engine.refresh(this);
@@ -351,6 +362,476 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    // ================= halaman lokasi (gereja) =================
+    static final int REQ_LOC = 20, REQ_BG_LOC = 21;
+    private String pendingShare;
+
+    private void handleShare(Intent i) {
+        if (i == null || !Intent.ACTION_SEND.equals(i.getAction())) return;
+        String txt = i.getStringExtra(Intent.EXTRA_TEXT);
+        String subj = i.getStringExtra(Intent.EXTRA_SUBJECT);
+        if (txt == null) return;
+        if (subj != null && !txt.contains(subj)) txt = subj + "\n" + txt;
+        i.setAction(Intent.ACTION_MAIN);
+        page = PAGE_PLACES;
+        pendingShare = txt;
+    }
+
+    @Override
+    protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        setIntent(i);
+        handleShare(i);
+        render(true);
+        if (pendingShare != null) {
+            String t = pendingShare;
+            pendingShare = null;
+            addFromLink(t);
+        }
+    }
+
+    private void bg(Runnable work) {
+        new Thread(work).start();
+    }
+
+    private void ui(Runnable r) {
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed()) r.run();
+        });
+    }
+
+    private void askLocationPermission() {
+        if (!Geo.hasFine(this)) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOC);
+            return;
+        }
+        if (!Geo.hasBackground(this)) {
+            new AlertDialog.Builder(this).setTitle("Izin lokasi “Sepanjang waktu”")
+                    .setMessage("Supaya HP bisa senyap otomatis walau aplikasi tertutup, pilih "
+                            + "“Izinkan sepanjang waktu” (Allow all the time) di layar berikutnya, "
+                            + "dan pastikan “Gunakan lokasi akurat” menyala.")
+                    .setNegativeButton("Nanti", null)
+                    .setPositiveButton("Lanjut", (d, w) ->
+                            requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, REQ_BG_LOC))
+                    .show();
+        }
+    }
+
+    private void renderPlaces() {
+        // --- status & saklar utama ---
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.VERTICAL);
+        top.setPadding(dp(20), dp(14), dp(20), dp(14));
+        top.setBackgroundColor(0xFF1A1A1A);
+        Switch on = new Switch(this);
+        on.setText("Ganti profil otomatis berdasarkan lokasi");
+        on.setTextColor(TXT);
+        on.setTextSize(17);
+        on.setChecked(s.geoOn());
+        on.setOnCheckedChangeListener((bt, checked) -> {
+            s.setGeoOn(checked);
+            if (!checked && s.geoActive()) s.setGeoActive(false, "", 0, 0);
+            if (checked && !Geo.ready(this)) askLocationPermission();
+            Geo.registerAll(this);
+            Engine.refresh(this);
+            content.post(() -> render(false));
+        });
+        top.addView(on);
+
+        if (s.geoOn()) {
+            if (!Geo.ready(this)) {
+                TextView w = text(!Geo.hasFine(this)
+                                ? "⚠  Izin lokasi belum diberikan — ketuk di sini"
+                                : "⚠  Izin lokasi harus “Izinkan sepanjang waktu” — ketuk di sini",
+                        14, 0xFFFFFFFF, false);
+                w.setBackgroundColor(YELLOW);
+                w.setPadding(dp(12), dp(10), dp(12), dp(10));
+                w.setOnClickListener(v -> askLocationPermission());
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
+                lp.topMargin = dp(10);
+                top.addView(w, lp);
+            } else if (!s.geoError().isEmpty()) {
+                TextView w = text("⚠  " + s.geoError(), 14, 0xFFFFFFFF, false);
+                w.setBackgroundColor(0xFF8E2A2A);
+                w.setPadding(dp(12), dp(10), dp(12), dp(10));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
+                lp.topMargin = dp(10);
+                top.addView(w, lp);
+            }
+            if (s.geoActive()) {
+                Profile out = s.profile(s.geoOutProfile());
+                TextView a = text("● Sedang di: " + s.geoActiveName(), 16, ACC_TXT, true);
+                a.setPadding(0, dp(12), 0, 0);
+                top.addView(a);
+                top.addView(text("Menjauh " + s.geoExitM() + " m → " + (out == null ? "?" : out.name), 14, SUB, false));
+                Button leave = btn("Saya sudah keluar", v -> {
+                    GeoReceiver.leave(this);
+                    render(false);
+                });
+                top.addView(leave);
+            }
+        }
+        content.addView(top);
+
+        // --- gereja tertentu ---
+        content.addView(divider());
+        content.addView(section("Gereja tertentu (langsung aktif saat masuk)"));
+        List<Place> ps = s.places();
+        if (ps.isEmpty()) {
+            TextView e = text("Belum ada. Tambahkan gereja yang biasa Om datangi.", 15, SUB, false);
+            e.setPadding(dp(20), 0, dp(20), dp(8));
+            content.addView(e);
+        }
+        for (final Place p : ps) {
+            LinearLayout row = listRow();
+            row.addView(icon(R.drawable.ic_place, p.enabled ? 0xFFBDBDBD : 0xFF666666),
+                    new LinearLayout.LayoutParams(dp(28), dp(28)));
+            LinearLayout mid = new LinearLayout(this);
+            mid.setOrientation(LinearLayout.VERTICAL);
+            mid.setPadding(dp(24), 0, 0, 0);
+            mid.addView(text(p.name, 18, p.enabled ? TXT : SUB, false));
+            mid.addView(text("Radius " + p.radius + " m · " + p.coords(), 13, SUB, false));
+            row.addView(mid, new LinearLayout.LayoutParams(0, WRAP, 1f));
+            Switch sw = new Switch(this);
+            sw.setChecked(p.enabled);
+            sw.setOnCheckedChangeListener((bt, c) -> {
+                List<Place> l = s.places();
+                for (Place x : l) if (x.id == p.id) x.enabled = c;
+                s.savePlaces(l);
+                Geo.registerAll(this);
+                content.post(() -> render(false));
+            });
+            row.addView(sw);
+            row.setOnClickListener(v -> placeDialog(p, false));
+            content.addView(row);
+        }
+        LinearLayout addHere = listRow();
+        addHere.addView(icon(R.drawable.ic_add, ACC_TXT), new LinearLayout.LayoutParams(dp(28), dp(28)));
+        TextView ah = text("Tambah: pakai lokasi saya sekarang", 17, ACC_TXT, false);
+        ah.setPadding(dp(24), 0, 0, 0);
+        addHere.addView(ah);
+        addHere.setOnClickListener(v -> addFromHere());
+        content.addView(addHere);
+        LinearLayout addLink = listRow();
+        addLink.addView(icon(R.drawable.ic_copy, ACC_TXT), new LinearLayout.LayoutParams(dp(26), dp(26)));
+        TextView al = text("Tambah: tempel link Google Maps / koordinat", 17, ACC_TXT, false);
+        al.setPadding(dp(26), 0, 0, 0);
+        addLink.addView(al);
+        addLink.setOnClickListener(v -> addFromLink(clipboardText()));
+        content.addView(addLink);
+        TextView tip = text("Tips: di Google Maps buka gerejanya → Bagikan → pilih “Profil Suara”.", 13, SUB, false);
+        tip.setPadding(dp(20), dp(4), dp(20), dp(8));
+        content.addView(tip);
+
+        // --- semua gereja ---
+        content.addView(divider());
+        content.addView(section("Semua gereja di sekitar"));
+        LinearLayout all = body();
+        Switch sa = new Switch(this);
+        sa.setText("Aktif juga di gereja mana pun");
+        sa.setTextColor(TXT);
+        sa.setTextSize(16);
+        sa.setChecked(s.geoAll());
+        sa.setOnCheckedChangeListener((bt, c) -> {
+            s.setGeoAll(c);
+            if (c) refreshChurches(true);
+            else Geo.registerAll(this);
+            content.post(() -> render(false));
+        });
+        all.addView(sa);
+        all.addView(text("Senyap setelah " + s.geoDwellMin() + " menit berada dalam " + s.geoAllRadius()
+                + " m dari gereja. Data gereja dari OpenStreetMap (radius 4 km, diperbarui otomatis saat Om pindah area).",
+                13, SUB, false));
+        if (s.geoAll()) {
+            int n = Geo.churches(s).size();
+            String when = s.churchTime() == 0 ? "belum diambil" : "diperbarui " + Engine.whenLabel(s.churchTime(), System.currentTimeMillis());
+            TextView cnt = text(n + " gereja terdaftar di sekitar · " + when, 14, TXT, false);
+            cnt.setPadding(0, dp(10), 0, 0);
+            all.addView(cnt);
+            all.addView(btn("Perbarui data gereja sekarang", v -> refreshChurches(true)));
+            if (n > 0) all.addView(btn("Lihat daftar gereja", v -> listChurches()));
+        }
+        content.addView(all);
+
+        // --- pengaturan ---
+        content.addView(divider());
+        content.addView(section("Pengaturan"));
+        content.addView(settingRow("Profil saat di gereja", nameOf(s.geoInProfile()), v ->
+                pickProfile("Profil saat di gereja", s.geoInProfile(), id -> s.setGeoInProfile(id))));
+        content.addView(settingRow("Profil setelah menjauh", nameOf(s.geoOutProfile()), v ->
+                pickProfile("Profil setelah menjauh", s.geoOutProfile(), id -> s.setGeoOutProfile(id))));
+        content.addView(settingRow("Jarak menjauh", s.geoExitM() + " m", v ->
+                pickNumber("Jarak menjauh (meter)", new int[]{200, 300, 500, 750, 1000, 1500}, s.geoExitM(), " m",
+                        x -> s.setGeoExitM(x))));
+        content.addView(settingRow("Lama berdiam (semua gereja)", s.geoDwellMin() + " menit", v ->
+                pickNumber("Lama berdiam", new int[]{1, 2, 3, 5, 10}, s.geoDwellMin(), " menit",
+                        x -> s.setGeoDwellMin(x))));
+        content.addView(settingRow("Radius gereja (semua gereja)", s.geoAllRadius() + " m", v ->
+                pickNumber("Radius gereja", new int[]{50, 80, 100, 150}, s.geoAllRadius(), " m",
+                        x -> s.setGeoAllRadius(x))));
+    }
+
+    private String nameOf(long id) {
+        Profile p = s.profile(id);
+        return p == null ? "(pilih profil)" : p.name;
+    }
+
+    private View settingRow(String label, String value, View.OnClickListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(20), dp(12), dp(20), dp(12));
+        row.setBackgroundResource(android.R.drawable.list_selector_background);
+        row.addView(text(label, 16, TXT, false));
+        row.addView(text(value, 14, ACC_TXT, false));
+        row.setOnClickListener(l);
+        return row;
+    }
+
+    private void pickProfile(String title, long cur, java.util.function.LongConsumer set) {
+        final List<Profile> ps = s.profiles();
+        String[] names = new String[ps.size()];
+        int sel = -1;
+        for (int i = 0; i < ps.size(); i++) {
+            names[i] = ps.get(i).name;
+            if (ps.get(i).id == cur) sel = i;
+        }
+        new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(names, sel, (d, w) -> {
+            set.accept(ps.get(w).id);
+            d.dismiss();
+            Engine.refresh(this);
+            render(false);
+        }).setNegativeButton("Batal", null).show();
+    }
+
+    private void pickNumber(String title, final int[] opts, int cur, String unit, java.util.function.IntConsumer set) {
+        String[] labels = new String[opts.length];
+        int sel = -1;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i] + unit;
+            if (opts[i] == cur) sel = i;
+        }
+        new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(labels, sel, (d, w) -> {
+            set.accept(opts[w]);
+            d.dismiss();
+            Geo.registerAll(this);
+            Engine.refresh(this);
+            render(false);
+        }).setNegativeButton("Batal", null).show();
+    }
+
+    private String clipboardText() {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+                CharSequence t = cm.getPrimaryClip().getItemAt(0).coerceToText(this);
+                if (t != null) {
+                    String x = t.toString();
+                    if (Geo.parseCoords(x) != null || x.contains("goo.gl") || x.contains("google.") || x.contains("maps"))
+                        return x;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private android.app.ProgressDialog busy(String msg) {
+        android.app.ProgressDialog pd = new android.app.ProgressDialog(this);
+        pd.setMessage(msg);
+        pd.setCancelable(false);
+        pd.show();
+        return pd;
+    }
+
+    private void addFromHere() {
+        if (!Geo.hasFine(this)) {
+            askLocationPermission();
+            return;
+        }
+        final android.app.ProgressDialog pd = busy("Mencari lokasi Om sekarang…");
+        bg(() -> {
+            try {
+                android.location.Location l = Geo.currentLocation(this);
+                ui(() -> {
+                    pd.dismiss();
+                    Place p = new Place();
+                    p.lat = l.getLatitude();
+                    p.lon = l.getLongitude();
+                    p.name = "Gereja";
+                    p.radius = Math.max(100, Math.round(l.getAccuracy() * 2 / 10) * 10);
+                    if (p.radius > 300) p.radius = 300;
+                    toast("Akurasi ±" + Math.round(l.getAccuracy()) + " m");
+                    placeDialog(p, true);
+                });
+            } catch (Exception e) {
+                ui(() -> {
+                    pd.dismiss();
+                    toast(e.getMessage());
+                });
+            }
+        });
+    }
+
+    private void addFromLink(String initial) {
+        final EditText et = new EditText(this);
+        et.setHint("Tempel link Google Maps atau “-6.30, 107.30”");
+        et.setText(initial == null ? "" : initial);
+        et.setMinLines(2);
+        LinearLayout box = dialogBody();
+        box.addView(et);
+        TextView n = new TextView(this);
+        n.setText("Di Google Maps: buka gerejanya → Bagikan → Salin link, lalu tempel di sini.");
+        n.setTextSize(12);
+        box.addView(n);
+        final AlertDialog dlg = new AlertDialog.Builder(this).setTitle("Tambah dari link")
+                .setView(box)
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("Lanjut", null)
+                .create();
+        dlg.setOnShowListener(di -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(x -> {
+            final String txt = et.getText().toString();
+            if (txt.trim().isEmpty()) {
+                toast("Tempel link dulu");
+                return;
+            }
+            dlg.dismiss();
+            final android.app.ProgressDialog pd = busy("Membaca lokasi dari link…");
+            bg(() -> {
+                double[] d = null;
+                String err = null;
+                try {
+                    d = Geo.resolveLink(txt);
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final double[] fd = d;
+                final String ferr = err;
+                ui(() -> {
+                    pd.dismiss();
+                    if (fd == null) {
+                        new AlertDialog.Builder(this).setTitle("Lokasi tidak terbaca")
+                                .setMessage((ferr != null ? ferr + "\n\n" : "")
+                                        + "Coba salin koordinatnya: di Google Maps tekan lama titik gereja, "
+                                        + "lalu salin angka seperti “-6.3051, 107.3072”.")
+                                .setPositiveButton("OK", null).show();
+                        return;
+                    }
+                    Place p = new Place();
+                    p.lat = fd[0];
+                    p.lon = fd[1];
+                    String nm = Geo.guessName(txt);
+                    p.name = nm.isEmpty() ? "Gereja" : nm;
+                    placeDialog(p, true);
+                });
+            });
+        }));
+        dlg.show();
+    }
+
+    private void placeDialog(final Place src, final boolean isNew) {
+        final Place p = src;
+        LinearLayout v = dialogBody();
+        v.addView(label("Nama"));
+        final EditText name = new EditText(this);
+        name.setText(p.name);
+        name.setSingleLine();
+        v.addView(name);
+        v.addView(label("Lokasi"));
+        TextView co = new TextView(this);
+        co.setText(p.coords() + "  (ketuk untuk buka di peta)");
+        co.setPadding(0, dp(4), 0, dp(4));
+        co.setOnClickListener(x -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(String.format(java.util.Locale.US,
+                        "geo:%f,%f?q=%f,%f(%s)", p.lat, p.lon, p.lat, p.lon, Uri.encode(name.getText().toString())))));
+            } catch (Exception e) {
+                toast("Aplikasi peta tidak ada");
+            }
+        });
+        v.addView(co);
+        final int[] radii = {50, 75, 100, 150, 200, 300};
+        v.addView(label("Radius area gereja"));
+        String[] rl = new String[radii.length];
+        int sel = 2;
+        for (int i = 0; i < radii.length; i++) {
+            rl[i] = radii[i] + " m";
+            if (radii[i] == p.radius) sel = i;
+        }
+        final Spinner rs = spinner(rl, sel);
+        v.addView(rs);
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(isNew ? "Tambah gereja" : "Ubah gereja")
+                .setView(v)
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("Simpan", (d, w) -> {
+                    String nm = name.getText().toString().trim();
+                    p.name = nm.isEmpty() ? "Gereja" : nm;
+                    p.radius = radii[Math.max(0, rs.getSelectedItemPosition())];
+                    List<Place> l = s.places();
+                    if (isNew) {
+                        p.id = s.newId();
+                        l.add(p);
+                    } else {
+                        for (int i = 0; i < l.size(); i++) if (l.get(i).id == p.id) l.set(i, p);
+                    }
+                    s.savePlaces(l);
+                    if (!s.geoOn()) s.setGeoOn(true);
+                    if (!Geo.ready(this)) askLocationPermission();
+                    Geo.registerAll(this);
+                    Engine.refresh(this);
+                    toast(p.name + " disimpan");
+                    render(false);
+                });
+        if (!isNew) {
+            b.setNeutralButton("Hapus", (d, w) -> {
+                List<Place> l = s.places();
+                for (int i = l.size() - 1; i >= 0; i--) if (l.get(i).id == p.id) l.remove(i);
+                s.savePlaces(l);
+                Geo.registerAll(this);
+                render(false);
+            });
+        }
+        b.show();
+    }
+
+    private void refreshChurches(boolean showProgress) {
+        if (!Geo.hasFine(this)) {
+            askLocationPermission();
+            return;
+        }
+        final android.app.ProgressDialog pd = showProgress ? busy("Mencari gereja di sekitar Om…") : null;
+        bg(() -> {
+            String msg;
+            try {
+                android.location.Location l = Geo.currentLocation(this);
+                int n = Geo.fetchChurches(this, l.getLatitude(), l.getLongitude());
+                Geo.registerAll(this);
+                msg = n + " gereja ditemukan dalam radius 4 km";
+            } catch (Exception e) {
+                msg = "Gagal: " + e.getMessage();
+            }
+            final String fm = msg;
+            ui(() -> {
+                if (pd != null) pd.dismiss();
+                toast(fm);
+                render(false);
+            });
+        });
+    }
+
+    private void listChurches() {
+        List<String> names = new ArrayList<>();
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(s.churchCache());
+            for (int i = 0; i < a.length(); i++) names.add((i + 1) + ". " + a.getJSONArray(i).optString(3, "Gereja"));
+        } catch (Exception ignored) {
+        }
+        new AlertDialog.Builder(this).setTitle("Gereja terdaftar (terdekat dulu)")
+                .setItems(names.toArray(new String[0]), null)
+                .setPositiveButton("Tutup", null).show();
+    }
+
     // ================= render =================
     private void render(boolean toTop) {
         content.removeAllViews();
@@ -368,6 +849,10 @@ public class MainActivity extends Activity {
         } else if (page == PAGE_SETTINGS) {
             title.setText("Pengaturan");
             renderSettings();
+        } else if (page == PAGE_PLACES) {
+            title.setText("Lokasi");
+            content.setPadding(0, 0, 0, dp(40));
+            renderPlaces();
         } else if (page == PAGE_MANAGE) {
             title.setText("Atur profil");
             content.setPadding(0, 0, 0, dp(40));
@@ -1524,6 +2009,8 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
+        if (code == REQ_LOC && Geo.hasFine(this) && !Geo.hasBackground(this)) askLocationPermission();
+        Geo.registerAll(this);
         Engine.refresh(this);
         render(false);
     }

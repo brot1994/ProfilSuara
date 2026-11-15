@@ -9,5 +9,9 @@ public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context c, Intent i) {
         Engine.tick(c);
+        try {
+            Geo.registerAll(c);
+        } catch (Exception ignored) {
+        }
     }
 }

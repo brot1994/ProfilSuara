@@ -40,6 +40,68 @@ public class Store {
         if (changed) saveEntries(out);
     }
 
+    // ---- lokasi (gereja) ----
+    public List<Place> places() {
+        List<Place> l = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(sp.getString("places", "[]"));
+            for (int i = 0; i < a.length(); i++) l.add(Place.fromJson(a.getJSONObject(i)));
+        } catch (JSONException ignored) {
+        }
+        return l;
+    }
+
+    public void savePlaces(List<Place> l) {
+        JSONArray a = new JSONArray();
+        try {
+            for (Place p : l) a.put(p.toJson());
+        } catch (JSONException ignored) {
+        }
+        sp.edit().putString("places", a.toString()).commit();
+    }
+
+    public boolean geoOn() { return sp.getBoolean("geoOn", false); }
+    public void setGeoOn(boolean b) { sp.edit().putBoolean("geoOn", b).commit(); }
+    /** Semua gereja terdekat (data OpenStreetMap). */
+    public boolean geoAll() { return sp.getBoolean("geoAll", false); }
+    public void setGeoAll(boolean b) { sp.edit().putBoolean("geoAll", b).commit(); }
+    public int geoDwellMin() { return sp.getInt("geoDwell", 2); }
+    public void setGeoDwellMin(int v) { sp.edit().putInt("geoDwell", v).commit(); }
+    public int geoAllRadius() { return sp.getInt("geoAllRadius", 80); }
+    public void setGeoAllRadius(int v) { sp.edit().putInt("geoAllRadius", v).commit(); }
+    public int geoExitM() { return sp.getInt("geoExit", 500); }
+    public void setGeoExitM(int v) { sp.edit().putInt("geoExit", v).commit(); }
+    public long geoInProfile() { return sp.getLong("geoIn", findByName("Senyap", 3)); }
+    public void setGeoInProfile(long id) { sp.edit().putLong("geoIn", id).commit(); }
+    public long geoOutProfile() { return sp.getLong("geoOut", findByName("Pelan", 2)); }
+    public void setGeoOutProfile(long id) { sp.edit().putLong("geoOut", id).commit(); }
+
+    private long findByName(String name, long fallback) {
+        for (Profile p : profiles()) if (p.name.equalsIgnoreCase(name)) return p.id;
+        return fallback;
+    }
+
+    /** Sedang berada di area gereja (profil lokasi aktif). */
+    public boolean geoActive() { return sp.getBoolean("geoActive", false); }
+    public String geoActiveName() { return sp.getString("geoActiveName", ""); }
+    public void setGeoActive(boolean on, String name, double lat, double lon) {
+        sp.edit().putBoolean("geoActive", on).putString("geoActiveName", name)
+                .putString("geoActiveLat", Double.toString(lat))
+                .putString("geoActiveLon", Double.toString(lon)).commit();
+    }
+    public double geoActiveLat() { return Double.parseDouble(sp.getString("geoActiveLat", "0")); }
+    public double geoActiveLon() { return Double.parseDouble(sp.getString("geoActiveLon", "0")); }
+
+    /** Cache gereja terdekat dari OpenStreetMap. */
+    public String churchCache() { return sp.getString("churches", "[]"); }
+    public void setChurchCache(String json, double lat, double lon) {
+        sp.edit().putString("churches", json).putLong("churchTime", System.currentTimeMillis())
+                .putString("churchLat", Double.toString(lat)).putString("churchLon", Double.toString(lon)).commit();
+    }
+    public long churchTime() { return sp.getLong("churchTime", 0); }
+    public String geoError() { return sp.getString("geoErr", ""); }
+    public void setGeoError(String e) { sp.edit().putString("geoErr", e == null ? "" : e).commit(); }
+
     public boolean goHome() { return sp.getBoolean("goHome", true); }
     public void setGoHome(boolean b) { sp.edit().putBoolean("goHome", b).commit(); }
 
