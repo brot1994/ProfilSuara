@@ -29,7 +29,7 @@ public class VSlider extends View {
     private Listener listener;
     private boolean dragging = false;
     private float dragFrac = 0f;      // posisi isian yang halus (mengikuti jari)
-    private static final float RANGE_FACTOR = 1.6f; // 0→maks butuh geser 1,6x tinggi slider
+    private static final float RANGE_FACTOR = 2.0f; // 0→maks butuh geser 2x tinggi slider (boleh keluar slider)
 
     public VSlider(Context c, int stream, int iconRes, int accent) {
         super(c);
@@ -86,8 +86,8 @@ public class VSlider extends View {
         icon.setTint(frac > 0.12f ? Color.WHITE : 0xAAFFFFFF);
         icon.draw(canvas);
 
-        // angka tingkat volume (sama seperti panel Samsung: 0..maks)
-        canvas.drawText(String.valueOf(value), w / 2f, 22 * density, textPaint);
+        // angka persen, bergerak halus 1% mengikuti jari
+        canvas.drawText(String.valueOf(Math.round(frac * 100)), w / 2f, 22 * density, textPaint);
     }
 
     private float downY, downFrac;
