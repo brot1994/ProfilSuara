@@ -88,17 +88,26 @@ public class VSlider extends View {
         canvas.drawText(String.valueOf(pct), w / 2f, 22 * density, textPaint);
     }
 
+    private float downY, downFrac;
+
     @Override
     public boolean onTouchEvent(MotionEvent e) {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                // geser relatif: sentuhan pertama TIDAK mengubah volume
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
-                // fall through
+                downY = e.getY();
+                downFrac = (value - min) / (float) (max - min);
+                return true;
             case MotionEvent.ACTION_MOVE: {
-                float h = getHeight();
-                float pad = getWidth() * 0.25f;
-                float frac = 1f - (e.getY() - pad) / Math.max(1f, h - 2 * pad);
-                frac = Math.max(0f, Math.min(1f, frac));
+                float h = Math.max(1f, getHeight());
+                float frac = downFrac + (downY - e.getY()) / h;
+                if (frac < 0f || frac > 1f) {
+                    // mentok di ujung: geser balik langsung terasa
+                    frac = Math.max(0f, Math.min(1f, frac));
+                    downFrac = frac;
+                    downY = e.getY();
+                }
                 int v = Math.round(min + frac * (max - min));
                 if (v != value) {
                     value = v;
