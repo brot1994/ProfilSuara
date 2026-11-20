@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     private SharedPreferences sp;
     private float dens;
     private Button btnOverlay, btnNotif, btnPolicy, btnStart;
+    private TextView stepInfo;
     private final Handler h = new Handler(Looper.getMainLooper());
 
     private int dp(float v) { return Math.round(v * dens); }
@@ -203,6 +204,11 @@ public class MainActivity extends Activity {
         exp.setOnCheckedChangeListener((c, on) -> sp.edit().putBoolean("expanded", on).apply());
         pan.addView(exp);
 
+        // --- info tingkat volume yang terbaca ---
+        LinearLayout info = card(root, "Jumlah tingkat volume terbaca");
+        stepInfo = text("", 14, Color.WHITE);
+        info.addView(stepInfo);
+
         // --- petunjuk ---
         LinearLayout tips = card(root, "Cara pakai");
         tips.addView(text(
@@ -234,7 +240,22 @@ public class MainActivity extends Activity {
         updateUi();
     }
 
+    private void updateSteps() {
+        android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < FloatService.STREAMS.length; i++) {
+            int st = FloatService.STREAMS[i];
+            int mn = Build.VERSION.SDK_INT >= 28 ? am.getStreamMinVolume(st) : 0;
+            sb.append(FloatService.NAMES[i]).append(": ")
+                    .append(am.getStreamVolume(st)).append(" dari ").append(am.getStreamMaxVolume(st))
+                    .append(" tingkat (min ").append(mn).append(")\n");
+        }
+        sb.append("\nUbah volume / Sound Assistant, lalu buka layar ini lagi untuk cek ulang.");
+        stepInfo.setText(sb.toString());
+    }
+
     private void updateUi() {
+        updateSteps();
         boolean overlay = Settings.canDrawOverlays(this);
         mark(btnOverlay, "Tampil di atas aplikasi lain", overlay);
         if (btnNotif != null) {
