@@ -27,6 +27,9 @@ public class VSlider extends View {
     private final Path clip = new Path();
     private final float density;
     private Listener listener;
+    private boolean dragging = false;
+    private float dragFrac = 0f;      // posisi isian yang halus (mengikuti jari)
+    private static final float RANGE_FACTOR = 1.6f; // 0→maks butuh geser 1,6x tinggi slider
 
     public VSlider(Context c, int stream, int iconRes, int accent) {
         super(c);
@@ -51,7 +54,7 @@ public class VSlider extends View {
 
     public void setValue(int v) {
         v = Math.max(min, Math.min(max, v));
-        if (v != value) {
+        if (v != value && !dragging) {
             value = v;
             invalidate();
         }
@@ -70,7 +73,7 @@ public class VSlider extends View {
         canvas.save();
         canvas.clipPath(clip);
         canvas.drawRect(rect, trackPaint);
-        float frac = (value - min) / (float) (max - min);
+        float frac = dragging ? dragFrac : (value - min) / (float) (max - min);
         float top = h - frac * h;
         canvas.drawRect(0, top, w, h, fillPaint);
         canvas.restore();
@@ -83,9 +86,8 @@ public class VSlider extends View {
         icon.setTint(frac > 0.12f ? Color.WHITE : 0xAAFFFFFF);
         icon.draw(canvas);
 
-        // angka level di atas
-        int pct = Math.round(frac * 100);
-        canvas.drawText(String.valueOf(pct), w / 2f, 22 * density, textPaint);
+        // angka tingkat volume (sama seperti panel Samsung: 0..maks)
+        canvas.drawText(String.valueOf(value), w / 2f, 22 * density, textPaint);
     }
 
     private float downY, downFrac;
@@ -98,26 +100,31 @@ public class VSlider extends View {
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                 downY = e.getY();
                 downFrac = (value - min) / (float) (max - min);
+                dragFrac = downFrac;
+                dragging = true;
                 return true;
             case MotionEvent.ACTION_MOVE: {
                 float h = Math.max(1f, getHeight());
-                float frac = downFrac + (downY - e.getY()) / h;
+                float frac = downFrac + (downY - e.getY()) / (h * RANGE_FACTOR);
                 if (frac < 0f || frac > 1f) {
                     // mentok di ujung: geser balik langsung terasa
                     frac = Math.max(0f, Math.min(1f, frac));
                     downFrac = frac;
                     downY = e.getY();
                 }
+                dragFrac = frac;
                 int v = Math.round(min + frac * (max - min));
                 if (v != value) {
                     value = v;
-                    invalidate();
                     if (listener != null) listener.onChange(this, v);
                 }
+                invalidate();
                 return true;
             }
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                dragging = false;
+                invalidate();
                 return true;
         }
         return super.onTouchEvent(e);
